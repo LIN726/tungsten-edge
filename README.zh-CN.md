@@ -218,4 +218,3 @@ python3 Scripts/check_debug_switches.py   # 每个 DOCK_* 环境开关都已登�
 **签名。** Xcode 工程有意只用本地证书签名；真正的 Developer ID 签名、强化运行时、公证和打包都在 `Scripts/package_release.sh`（fail-closed：任何一项检查不过就不会生成 `dist/`）。`Scripts/install_local_release.sh` 把同样签好的包装进「应用程序」供日常使用。
 
 **参与贡献。** 小修以外的改动请先开 issue——bug 模板会问到让窗口识别问题可复现的细节。界面同时提供英文和简体中文，新增面向用户的文案两种都要。
-</content>

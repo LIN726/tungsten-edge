@@ -168,7 +168,9 @@ Two more settings under **System Settings → Desktop & Dock** pair well with a 
 
 **Issues vs Discussions** — [Issues](https://github.com/moonbai-studio/tungsten-edge/issues) are for bug reports and concrete feature requests. For questions about how to use Tungsten Edge, installation help or general discussion, please use [Discussions](https://github.com/moonbai-studio/tungsten-edge/discussions).
 
-**WeChat Group**
+Issues and discussions are answered in English and Chinese alike — write in whichever you prefer.
+
+**WeChat Group** *(for Chinese-speaking users)*
 
 <img src="assets/wechat-group.png" alt="Tungsten Edge WeChat group QR code" width="280" />
 
@@ -230,4 +232,5 @@ Two habits keep it maintainable: decision logic is extracted into `Core/Support`
 **Signing.** The Xcode project signs with a local certificate on purpose; the real Developer ID signature, hardened runtime, notarization and packaging happen in `Scripts/package_release.sh` (fail-closed: it will not produce `dist/` unless every check passes). `Scripts/install_local_release.sh` installs the same signed build into `/Applications` for daily use.
 
 **Contributing.** Open an issue first for anything beyond a small fix — the bug template asks for the details that make window-identification problems reproducible. The UI ships in English and Simplified Chinese; new user-facing strings need both.
-</content>
+
+**A note on the source comments.** They are written in Chinese. Everything facing a user or a reporter — the UI strings, this README, the release notes, the issue templates — is bilingual, but the in-code rationale is not, and it is where most of the *why* lives. If a specific area blocks you, open an issue naming the files and I'll translate that part.

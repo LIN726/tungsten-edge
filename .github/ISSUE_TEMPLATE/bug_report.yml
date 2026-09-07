@@ -7,8 +7,10 @@ body:
       value: |
         Thanks for taking the time to report this. Filling in the version fields
         saves a round-trip — most reports we get are missing them.
+        **English or Chinese are both fine.**
 
         感谢反馈。**版本号那两栏请务必填**，否则我们只能回头再问一次。
+        **中文英文都可以。**
 
   - type: input
     id: app-version
@@ -16,7 +18,7 @@ body:
       label: Tungsten Edge version / 钨极版本
       description: >
         Click the menu bar icon — the version is shown near the bottom of the menu.
-        点菜单栏图标，版本号在菜单靠下的位置。
+        / 点菜单栏图标，版本号在菜单靠下的位置。
       placeholder: "0.8.0 (20)"
     validations:
       required: true
@@ -27,7 +29,7 @@ body:
       label: macOS version / 系统版本
       description: >
         Apple menu ▸ About This Mac.
-        苹果菜单 ▸ 关于本机。
+        / 苹果菜单 ▸ 关于本机。
       placeholder: "macOS 15.6 (Apple Silicon)"
     validations:
       required: true
@@ -39,8 +41,7 @@ body:
       description: >
         What did you do, step by step? If it only happens with a specific app,
         please name it — window behaviour varies a lot between apps.
-        你是怎么一步步操作的？如果只在某个应用上出现，请写明是哪个——
-        不同应用的窗口行为差别很大。
+        / 你是怎么一步步操作的？如果只在某个应用上出现，请写明是哪个——不同应用的窗口行为差别很大。
       placeholder: |
         1. Open two Finder windows
         2. Minimize the front one
@@ -61,7 +62,7 @@ body:
       label: What actually happened / 实际的结果
       description: >
         A screenshot or short screen recording helps a lot for anything visual.
-        视觉上的问题，附一张截图或一小段录屏会很有帮助。
+        / 视觉上的问题，附一张截图或一小段录屏会很有帮助。
     validations:
       required: true
 
@@ -71,7 +72,7 @@ body:
       label: Accessibility permission / 辅助功能权限
       description: >
         System Settings ▸ Privacy & Security ▸ Accessibility.
-        系统设置 ▸ 隐私与安全性 ▸ 辅助功能。
+        / 系统设置 ▸ 隐私与安全性 ▸ 辅助功能。
       options:
         - "Granted / 已授权"
         - "Not granted / 未授权"
@@ -85,6 +86,6 @@ body:
       label: Anything else / 其他补充
       description: >
         Does it happen every time or only sometimes? Did it start after an update?
-        每次都出现还是偶发？是不是某次更新之后才开始的？
+        / 每次都出现还是偶发？是不是某次更新之后才开始的？
     validations:
       required: false
