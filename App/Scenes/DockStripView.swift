@@ -223,7 +223,10 @@ struct DockStripView: View {
             onHoverBegan: { externalDropHoverBegan($0) },
             onHoverMoved: { externalDropHoverMoved($0) },
             onHoverEnded: { externalDropHoverEnded() },
-            onCommit: { target, urls in handleExternalDrop(target, urls: urls) }
+            onCommit: { target, urls in handleExternalDrop(target, urls: urls) },
+            onCommitApplications: { urls, location in
+                handleExternalApplicationDrop(urls, atX: location.x)
+            }
         ))
         // 与 "strip" 命名空间同一视图 → 屏幕 frame 即 "strip" 空间原点，供抽屉拖回任务条做坐标映射 + 进出判定。
         // **面板自己挪了也要重报落点锚点**：所有锚点都是 `stripFrameToScreen` 拿这个 rect 换算的。
@@ -671,7 +674,7 @@ struct DockStripView: View {
     /// 抽屉整块落点：**只看 x、永远给得出答案**。判据与理由（以及为什么不能用整帧 `contains`）
     /// 见纯类型 `StripBlockLanding`——简单说，转正判定框故意伸到条上沿之外 16pt，
     /// 而整帧命中在那里永远失败，首次落点因此 100% 退化成末尾。
-    private func blockTarget(atX x: CGFloat, excluding block: Set<String>) -> (id: String, after: Bool)? {
+    func blockTarget(atX x: CGFloat, excluding block: Set<String>) -> (id: String, after: Bool)? {
         StripBlockLanding.target(pointerX: x,
                                  frames: chipFrames.filter { !block.contains($0.key) })
     }

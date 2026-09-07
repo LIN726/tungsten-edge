@@ -18,12 +18,19 @@ enum StripDropRouting {
         case moveInto(path: String)
         /// 落在文件夹区 → 固定目录到显示序 index 位（仅目录有效，由调用方过滤）。
         case pin(insertIndex: Int)
+        /// 拖的是应用 bundle → 勾「在程序坞中保留」+ 落到光标那个位置。**整条都是它的落点**，
+        /// 不带 index：live 区的插入位由 `StripBlockLanding` 按 `chipFrames` 算（见 `handleExternalApplicationDrop`）。
+        case keepApp
         /// 其他位置 → 拒绝。
         case none
     }
 
     /// - Parameters:
     ///   - location: drop 落点（"strip" 空间）。
+    ///   - isApplicationDrag: 这次拖的是不是应用 bundle。**没有默认值**：漏传会静默编译成
+    ///     「应用走文件分支」，而那正是本参数存在的理由——`.app` 在文件系统里就是目录，
+    ///     `.moveInto` 是真实的文件移动/跨卷复制，会把用户的应用从「应用程序」里搬走。
+    ///     纯函数入参而不是在这里读盘，是为了让这条安全边界能进单测。
     ///   - shelfFrame: 中转格 frame（独立 PreferenceKey 上报，**不混入 folderFrames**）。
     ///     **nil = 用户关掉了中转格**。调用方必须直接按设置传 `showShelf ? frame : nil`，
     ///     不能等 PreferenceKey 把旧帧清掉——`ShelfFramePreferenceKey.reduce` 刻意忽略 `.zero`，
@@ -35,11 +42,16 @@ enum StripDropRouting {
     ///   - tailSlack: 最后一个文件夹右侧仍算文件夹区的余量（有中转格且没有文件夹时挂在中转格
     ///     右侧，覆盖「第一次拖目录进来固定」的空区场景）。
     static func route(location: CGPoint,
+                      isApplicationDrag: Bool,
                       shelfFrame: CGRect?,
                       folderFrames: [String: CGRect],
                       orderedPaths: [String],
                       headSlack: CGFloat = defaultHeadSlack,
                       tailSlack: CGFloat = 24) -> Target {
+        // ⚠️ 安全闸，必须是第一句：应用永远走保留，绝不落到 .moveInto / .pin / .stash。
+        // 整条任务条都是它的落点——用户的直觉是「拖到 Dock 上」，落在窗口区必须算数。
+        if isApplicationDrag { return .keepApp }
+
         let frames = orderedPaths.compactMap { folderFrames["folder-" + $0] }
 
         // 区左边界：有中转格就是它的左缘（并且落在它身上 = 暂存）；没有就退到首个文件夹

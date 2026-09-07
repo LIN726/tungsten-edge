@@ -313,7 +313,8 @@ final class AppRuntime: ObservableObject {
 
     /// 用户动作的执行队列。并发（保持与旧 `Task.detached` 相同的并行度：连点两下不互相排队），
     /// `.userInitiated`（这是人在等的路径，优先于任何后台盘点）。
-    private static let actionQueue = DispatchQueue(
+    /// 视图层的读盘也走这里（拖应用进条时读 Info.plist），理由同铁律：不占 Swift 协作池。
+    static let actionQueue = DispatchQueue(
         label: "com.caye.macosdockcc.v2.window-action",
         qos: .userInitiated,
         attributes: .concurrent
