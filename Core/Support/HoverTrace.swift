@@ -47,6 +47,25 @@ enum HoverTrace {
         )
     }
 
+    /// 外部拖放（从访达拖进来）的每一次回调。**临时诊断**：2026-09-08 owner 报「拖应用进条时
+    /// 光标上的加号一直闪」，而闪烁只可能来自 `dropUpdated` 返回的落点操作在交替。这一行把
+    /// 「会话进出 / 剪贴板判定 / 两个落点 / 返回的操作 / 空档序号」摆在同一条时间线上，
+    /// 让「是我们在振荡还是系统角标自己在动」变成可判定的。查清后删掉。
+    static func externalDrop(phase: String, x: CGFloat, isApp: Bool,
+                             target: String, fileTarget: String,
+                             operation: String, ghostIndex: Int?,
+                             frozenWidth: CGFloat?, stripRect: CGRect) {
+        guard isEnabled else { return }
+        Writer.shared.append(
+            "{\"t\":\(stamp()),\"kind\":\"extdrop\",\"phase\":\(quote(phase))," +
+            "\"x\":\(round(x * 10) / 10),\"isApp\":\(isApp)," +
+            "\"target\":\(quote(target)),\"fileTarget\":\(quote(fileTarget))," +
+            "\"op\":\(quote(operation)),\"ghost\":\(ghostIndex.map(String.init) ?? "null")," +
+            "\"frozen\":\(frozenWidth.map { String(r1($0)) } ?? "null")," +
+            "\"rectX\":\(r1(stripRect.minX)),\"rectW\":\(r1(stripRect.width))}"
+        )
+    }
+
     /// 主线程卡顿：预定 8ms 触发，实际晚了 `lateMs`。只记超过 12ms 的，免得自己刷屏。
     /// 60Hz 下一帧 16.7ms，所以 >16.7 基本等于至少掉一帧。
     static func mainLoopStall(lateMs: Double) {

@@ -27,6 +27,10 @@ extension DockStripView {
             //    就是 owner 2026-08-19 报的「落位抖动」。AppKit 自己对拖放结束后的悬停也是
             //    等鼠标动了才发 mouseEntered。按住期由 `DragController.hoverHoldPayload` 管。
             guard !dragController.hoverSuppressed else { return nil }
+            // 实验 B：外部拖放（从访达拖进来）悬停期同样不判悬停。上面 ① 那条理由逐字适用
+            // ——手里拎着东西扫过谁就给谁点亮、还弹名字气泡，本来就不对；而且气泡是一扇
+            // 浮动面板，拖动途中反复 order front / out 会不会扰动系统的拖放目标，正是要测的。
+            guard !externalDropHoverActive else { return nil }
             guard let pointer = pointerBox.value, origin != .zero else { return nil }
             let point = CGPoint(x: pointer.x - origin.minX, y: origin.maxY - pointer.y)
             let hit = StripHoverResolution.chip(

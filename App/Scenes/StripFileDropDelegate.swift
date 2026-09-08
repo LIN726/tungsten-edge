@@ -28,6 +28,11 @@ struct StripFileDropDelegate: DropDelegate {
     /// 悬停期的让位空档：拖的是应用时给 (bundleID, 落点)，否则 `nil`（收空档）。
     /// 视图侧负责把它折成锚点并做变化门控——**这里每 ~50ms 就会调一次**。
     let onGhostMoved: (String?, CGPoint) -> Void
+    /// 临时诊断用：此刻空档插在第几位（nil = 没有空档）、冻住的条宽、条的实际屏幕矩形。
+    /// 后两个是用来验证「冻宽到底有没有生效」的——查清「加号闪烁」后删。
+    let currentGhostIndex: () -> Int?
+    let currentFrozenWidth: () -> CGFloat?
+    let currentStripRect: () -> CGRect
 
     /// 悬停期的目标（决定高亮与光标）。应用一律 `.keepApp`。
     private func route(_ info: DropInfo) -> StripDropRouting.Target {
@@ -53,25 +58,44 @@ struct StripFileDropDelegate: DropDelegate {
     }
 
     func dropEntered(info: DropInfo) {
-        onHoverBegan(route(info))
+        let target = route(info)
+        trace("entered", info, target: target)
+        onHoverBegan(target)
         onGhostMoved(DragPasteboardInspector.applicationBundleID(), info.location)
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         let target = route(info)
+        trace("updated", info, target: target)
         onHoverMoved(target)
         onGhostMoved(DragPasteboardInspector.applicationBundleID(), info.location)
         return DropProposal(operation: target == .none ? .forbidden : .copy)
     }
 
     func dropExited(info: DropInfo) {
+        trace("exited", info, target: route(info))
         onHoverEnded(false)   // 没有落定要接 → 空档当场收掉
+    }
+
+    /// 临时诊断（2026-09-08「加号一直闪」）。查清后连同 `HoverTrace.externalDrop` 一起删。
+    private func trace(_ phase: String, _ info: DropInfo, target: StripDropRouting.Target) {
+        guard HoverTrace.isEnabled else { return }
+        HoverTrace.externalDrop(phase: phase,
+                                x: info.location.x,
+                                isApp: DragPasteboardInspector.containsApplication(),
+                                target: "\(target)",
+                                fileTarget: "\(fileRoute(info))",
+                                operation: target == .none ? "forbidden" : "copy",
+                                ghostIndex: currentGhostIndex(),
+                                frozenWidth: currentFrozenWidth(),
+                                stripRect: currentStripRect())
     }
 
     func performDrop(info: DropInfo) -> Bool {
         let target = route(info)
         let fileTarget = fileRoute(info)
         let location = info.location
+        trace("perform", info, target: target)
         // 落定即灭高亮,同步清（系统在这之后仍可能补发孤立 dropUpdated,已被门控忽略）。
         // 传 true：空档要留到真图标进投影，由 `keepDroppedApplications` 收（外加兜底 Timer）。
         onHoverEnded(true)

@@ -13,19 +13,24 @@ extension DockStripView {
     /// （`updateDrawerToStripConvert` 一进任务条就把卡转正、邻居实时让开），而且它的判定框比
     /// 这圈高亮的判定框（正好是可见条矩形）还大一圈，两者信息完全重复。
     /// 外部拖目录那条路径没有让位反馈，整条高亮是它唯一的「能放这儿」信号，所以留着。
-    /// 从访达拖应用进来同样只有整条高亮（owner 2026-09-07：做核心、不做让位预览）——
-    /// 拖动途中提前分开图标要把系统 `onDrop` 与应用内自绘拖拽两套机制对接起来，比核心逻辑还贵。
+    /// **拖应用进条时条的边缘不做任何变化**（owner 2026-09-08：「直接把任务条的边缘让他不要有变化」）。
+    /// 拖应用已经有让位空档做反馈，整条高亮是重复信息；而它恰恰是最扎眼的那个闪烁面——
+    /// 边缘不随状态变化，就不可能闪，这一条不依赖悬停进出是否彻底清零。
+    /// 外部拖**文件夹**钉住那条路径仍然点亮：它没有让位反馈，整条高亮是它唯一的「能放这儿」信号。
     var stripHighlighted: Bool {
-        switch externalDropTarget {
-        case .pin, .keepApp: return true
-        default: return false
-        }
+        if case .pin = externalDropTarget { return true }
+        return false
     }
 
     /// 外部拖入高亮的三个生命周期入口 + 看门狗。`externalDropTarget` 只在这一组里改。
     /// dropEntered：一次悬停会话开始 → 允许点亮。
     func externalDropHoverBegan(_ target: StripDropRouting.Target) {
         externalDropHoverActive = true
+        // **必须在第一次插空档之前捕获**，否则冻住的是已经被空档撑宽的那个值，环照样成立。
+        // 这里是整条悬停会话唯一的起点，所以捕获点只能在这儿。
+        if frozenStripWidth == nil, stripRootScreenRect != .zero {
+            frozenStripWidth = stripRootScreenRect.width
+        }
         setExternalDropTarget(target)
     }
 
@@ -49,12 +54,14 @@ extension DockStripView {
         externalDropWatchdog?.invalidate()
         externalDropWatchdog = nil
         externalDropTarget = nil
-        if isLanding {
+        if isLanding, externalDropGhost != nil {
             // 交接期的兜底就上在这一处，而不是落定路径深处：`performDrop` 在这之后还有
             // 好几条提前 return（目标是 .none、没有 provider、URL 取空、一个应用都没解析出来），
             // 每一条都不会走到落定。上在这里，任何一条都能在 1s 内自愈。
             armExternalDropGhostTimeout()
         } else {
+            // 没有空档要交接（拖的是普通文件，或本来就没让位）→ 立刻收，**包括解冻条宽**。
+            // 少了这一支，拖文件落定后条宽会一直冻在悬停那一刻的值。
             clearExternalDropGhost()
         }
     }
@@ -101,10 +108,13 @@ extension DockStripView {
         externalDropGhostTimeout = timer
     }
 
+    /// 空档撤掉的同时解冻条宽——两者同寿：落定那一支要等真图标进了投影才解冻，
+    /// 条才会一次干净地长到最终长度，而不是先弹回旧宽再变长。
     func clearExternalDropGhost() {
         externalDropGhostTimeout?.invalidate()
         externalDropGhostTimeout = nil
         externalDropGhost = nil
+        frozenStripWidth = nil
     }
 
     /// 设落点目标 + 重置拖放结束看门狗。`dropUpdated` 悬停期每 ~50ms 来一次会不断把 0.35s Timer 推后
@@ -120,6 +130,9 @@ extension DockStripView {
             externalDropHoverActive = false
             externalDropTarget = nil
             externalDropWatchdog = nil
+            // 这是「拖放结束却一个收尾回调都没给」那条路径。会话已经死了，
+            // 空档和冻住的条宽都得跟着走，否则条会一直卡在悬停时那个宽度。
+            clearExternalDropGhost()
         }
         RunLoop.main.add(timer, forMode: .common)
         externalDropWatchdog = timer

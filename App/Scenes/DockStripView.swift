@@ -105,6 +105,17 @@ struct DockStripView: View {
     /// 「空档合上 → 图标弹出」闪一下），这个 Timer 保证任何异常路径下它都不会赖着不走。
     @State var externalDropGhostTimeout: Timer?
 
+    /// 外部拖放悬停期冻住的条宽（nil = 没在悬停，按自然宽度走）。
+    ///
+    /// **这是一个闭环的断点，不是优化**（2026-09-08 实测）：条是水平居中的
+    /// （`PanelGeometry.dockTargetFrame`），让位空档一插进来内容就宽出一张卡 → 面板 relayout →
+    /// 整条重新居中 → 投放区从**静止不动的**光标底下挪走 → `dropExited` → 空档和高亮被清 →
+    /// 内容变窄 → 居中回来 → `dropEntered` → 再插入。实测一次拖动进出 77 轮、周期 ≈33ms，
+    /// 表现就是加号、条的边缘、空档三样一起闪。冻住宽度 → `fittingSize` 不变 → 不 relayout →
+    /// 投放区不动 → 环断掉。空档让出的那张卡宽由内容溢出吸收（`ScrollView` 裁掉），
+    /// 与「转正期间窗口卡溢出而非改变面板宽度」是同一套老做法。
+    @State var frozenStripWidth: CGFloat?
+
     /// 外部拖入高亮的「拖放结束看门狗」+「点亮门控」。SwiftUI 文件 drop 有两种收尾异常:
     /// ①拖放在最后一次 dropUpdated 后不给任何 performDrop/dropExited 收尾回调 → 高亮遗留在 .pin;
     /// ②成功 drop 后 ~330ms 会补发一次孤立的 dropUpdated 把高亮重新点亮。
@@ -213,6 +224,11 @@ struct DockStripView: View {
             highlighted: stripHighlighted
         )
         .animation(.easeOut(duration: 0.15), value: stripHighlighted)
+        // 外部拖放悬停期冻住条宽（理由见 `frozenStripWidth`）。**必须在下面那层
+        // `.coordinateSpace(name: "strip")` 之前**：坐标空间视图的宽度因此在整段悬停里恒定，
+        // `chipFrames` 与 `onDrop` 的落点仍然同源，挂载层一个字没动。
+        // `nil` 时不套任何 frame——平时完全按自然宽度走，非拖放路径零影响。
+        .frame(width: frozenStripWidth)
         // 跨面板后，被拖的卡片改由 DragController 的全屏载体面板绘制（不再画在任务条 overlay 上 —
         // 任务条窗口只有 92pt 高，自绘 overlay 会被裁掉，飘不出去）。这里只保留"让出空位"的原位隐藏。
         .coordinateSpace(name: "strip")
@@ -237,7 +253,10 @@ struct DockStripView: View {
             },
             onGhostMoved: { bundleID, location in
                 updateExternalDropGhost(bundleID: bundleID, atX: location.x)
-            }
+            },
+            currentGhostIndex: { externalDropGhost?.insertIndex },
+            currentFrozenWidth: { frozenStripWidth },
+            currentStripRect: { stripRootScreenRect }
         ))
         // 与 "strip" 命名空间同一视图 → 屏幕 frame 即 "strip" 空间原点，供抽屉拖回任务条做坐标映射 + 进出判定。
         // **面板自己挪了也要重报落点锚点**：所有锚点都是 `stripFrameToScreen` 拿这个 rect 换算的。
@@ -1109,9 +1128,19 @@ struct DockStripView: View {
             // 而空档既不能上报悬停帧（不弹气泡），更不能上报 `ChipFramePreferenceKey`
             // ——`chipFrames` 是落点判定 `StripBlockLanding` 自己的输入，空档进去就会
             // 自我锚定：算出来的落点指向空档本身，指针一动就抖。这里只占一张卡的宽度。
-            Color.clear
+            //
+            // ⚠️ **底色必须是真的会绘制的，不能写 `Color.clear`**（2026-09-08 实测五轮）。
+            // 完全透明的视图不参与 `.onDrop` 的判定区，`.contentShape` 也救不回来：空档一开在
+            // 光标底下，光标就掉进洞里 → `dropExited` → 空档被清 → 卡片回到光标下 →
+            // `dropEntered`，约 30 次/秒的无限循环，表现是光标上的加号和条的边缘一起闪。
+            // 量化（一次拖动的进出次数）：77 → 空档加 `.contentShape` **69，无效** →
+            // 承载 `onDrop` 那层加 `.contentShape` **56，无效** → 换成下面这个几乎不可见
+            // 但会真正绘制的颜色 **10**。`.contentShape` 留着是把命中形状钉成整块矩形，
+            // 但它单独起不了作用——起作用的是"这个视图真的画了东西"。
+            Color.black.opacity(0.001)
                 .frame(width: ChipPillMetrics.cardWidth * dockScale,
                        height: ChipPillMetrics.chipHeight * dockScale)
+                .contentShape(Rectangle())
         }
     }
 
