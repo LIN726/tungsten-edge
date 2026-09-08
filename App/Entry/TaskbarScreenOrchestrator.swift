@@ -389,8 +389,14 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
         units.forEach { $0.coordinator.setFullscreenIntentRouting(enabled: true) }
     }
 
-    private var currentPanelScreenCGFrames: Set<CGRect> {
-        Set(units.compactMap { $0.coordinator.currentPanelScreenCGFrame() })
+    /// **不要改回 `Set<CGRect>`**：`CGRect` 的 `Hashable` 一致性是 macOS 15+，编译器只给警告，
+    /// 到 macOS 14 及更早的系统上运行时没有见证表，第一次 insert 就段错误——0.11.0–0.11.2
+    /// 在那些系统上启动即崩就是这一句（`AGENTS.md` 铁律）。屏幕是个位数，数组去重足够。
+    private var currentPanelScreenCGFrames: [CGRect] {
+        units.compactMap { $0.coordinator.currentPanelScreenCGFrame() }
+            .reduce(into: [CGRect]()) { unique, frame in
+                if !unique.contains(frame) { unique.append(frame) }
+            }
     }
 
     private func pushPanelScreensToIntentMonitor() {

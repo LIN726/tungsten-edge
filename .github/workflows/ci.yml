@@ -55,6 +55,13 @@ jobs:
             2>&1 | tee build/xcodebuild-test.log | grep -E 'error:|warning: unre|Executed [0-9]+ tests|\*\* TEST' || true
           grep -E 'Executed [0-9]+ tests, with 0 failures' build/xcodebuild-test.log
 
+      # Conformance-availability warnings do not fail a build, but they crash at launch on
+      # the deployment target (macOS 12): CGRect/CGPoint/CGSize Hashable is macOS 15+, and
+      # a Set<CGRect> shipped that way in 0.11.0-0.11.2. The runner compiles from a fresh
+      # checkout, so this log carries every warning.
+      - name: Cross-version conformance check
+        run: python3 Scripts/check_availability_warnings.py build/xcodebuild-test.log
+
       - name: Upload test log
         if: always()
         uses: actions/upload-artifact@v4

@@ -270,6 +270,8 @@ if ! xcodebuild test -project "$PROJECT" -scheme "$SCHEME" -configuration Debug 
   die "unit tests failed - see $TEST_LOG"
 fi
 grep -E 'Executed [0-9]+ tests, with 0 failures' "$TEST_LOG" | tail -n 1
+python3 "$ROOT/Scripts/check_availability_warnings.py" "$TEST_LOG" \
+  || die "build log has cross-version conformance warnings - they crash at launch on the minimum supported macOS"
 
 TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/tungsten-edge-release.XXXXXX")"
 STAGE="$TEMP_ROOT/stage"
@@ -285,6 +287,12 @@ if ! xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
   clean build >"$BUILD_LOG" 2>&1; then
   die "Release build failed; see $BUILD_LOG"
 fi
+
+# The authoritative pass: this is the only clean build in the run, so every file is
+# recompiled and every conformance-availability warning is printed. A warning here means
+# the app segfaults at launch on the deployment target - it shipped that way in 0.11.0-0.11.2.
+python3 "$ROOT/Scripts/check_availability_warnings.py" "$BUILD_LOG" \
+  || die "Release build log has cross-version conformance warnings - fix them before packaging"
 
 BUILT_APP="$PRODUCTS/$FULL_PRODUCT_NAME"
 [[ -d "$BUILT_APP" ]] || die "built app not found: $BUILT_APP"
@@ -383,6 +391,20 @@ SIGN_UPDATE="$(find "$DD/SourcePackages/artifacts" -name sign_update -type f 2>/
 # Replace published artifacts only after every verification has passed.
 rm -rf "$DIST"
 mv "$NEW_DIST" "$DIST"
+
+# Archive the dSYM next to the appcast staging zips. A user crash report can only be read
+# with the dSYM whose UUID matches the shipped binary, and build/ReleaseDD is wiped by the
+# next clean build - after that the report is just hex addresses. See Docs/29.
+DSYM="$PRODUCTS/$FULL_PRODUCT_NAME.dSYM"
+[[ -d "$DSYM" ]] || die "dSYM not found at $DSYM - crash reports from this build could never be symbolicated"
+DSYM_UUIDS="$(dwarfdump --uuid "$DSYM" | awk '{print $2}' | sort)"
+APP_UUIDS="$(dwarfdump --uuid "$APP/Contents/MacOS/$EXECUTABLE_NAME" | awk '{print $2}' | sort)"
+[[ "$DSYM_UUIDS" == "$APP_UUIDS" ]] || die "dSYM UUIDs do not match the signed app - the archive would be useless"
+DSYM_ARCHIVE_DIR="${TUNGSTEN_DSYM_DIR:-$HOME/tungsten-edge-appcast/dsym}"
+mkdir -p "$DSYM_ARCHIVE_DIR"
+DSYM_ZIP="$DSYM_ARCHIVE_DIR/Tungsten-Edge-$VERSION.app.dSYM.zip"
+ditto -c -k --sequesterRsrc --keepParent "$DSYM" "$DSYM_ZIP"
+echo "==> dSYM archived: $DSYM_ZIP"
 
 echo "==> Done. Artifacts in: $DIST"
 ls -la "$DIST"

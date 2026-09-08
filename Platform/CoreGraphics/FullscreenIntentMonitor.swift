@@ -137,7 +137,7 @@ private final class FullscreenIntentAtomicState {
         withLock { snapshot = value }
     }
 
-    func updatePanelScreens(_ frames: Set<CGRect>) {
+    func updatePanelScreens(_ frames: [CGRect]) {
         withLock {
             guard let current = snapshot else { return }
             snapshot = FullscreenIntentSnapshot(
@@ -537,8 +537,9 @@ final class FullscreenIntentMonitor {
     private var focusedElement: AXUIElement?
     private var focusedWindowID: CGWindowID?
     private var activePID: pid_t?
-    /// 有任务条的屏的 CG frame 集合（③④ 下多块）。
-    private var panelScreenCGFrames: Set<CGRect> = []
+    /// 有任务条的屏的 CG frame（③④ 下多块）。**不能用 `Set<CGRect>`**：`CGRect` 的 `Hashable`
+    /// 是 macOS 15+ 的一致性，老系统上运行时会段错误（`AGENTS.md` 铁律）。
+    private var panelScreenCGFrames: [CGRect] = []
     private var observationGeneration: UInt64 = 0
     private var cacheGeneration: UInt64 = 0
     private var refreshCoalescer = FullscreenIntentRefreshCoalescer()
@@ -651,8 +652,8 @@ final class FullscreenIntentMonitor {
         tapThread.stop()
     }
 
-    /// 编排层在任一单元换屏 / 建拆单元后喂进全部有任务条的屏。集合没变时是空操作。
-    func updatePanelScreens(_ frames: Set<CGRect>) {
+    /// 编排层在任一单元换屏 / 建拆单元后喂进全部有任务条的屏。没变时是空操作。
+    func updatePanelScreens(_ frames: [CGRect]) {
         guard frames != panelScreenCGFrames else { return }
         panelScreenCGFrames = frames
         atomicState.updatePanelScreens(frames)

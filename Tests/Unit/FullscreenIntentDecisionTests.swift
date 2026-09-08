@@ -399,7 +399,7 @@ final class FullscreenIntentDecisionTests: XCTestCase {
         focusedWindowID: CGWindowID = 456,
         buttonEnabled: Bool = true,
         isFullscreen: Bool = false,
-        panelScreens: Set<CGRect> = [CGRect(x: 0, y: 0, width: 1512, height: 982)]
+        panelScreens: [CGRect] = [CGRect(x: 0, y: 0, width: 1512, height: 982)]
     ) -> FullscreenIntentSnapshot {
         FullscreenIntentSnapshot(
             generation: generation,
