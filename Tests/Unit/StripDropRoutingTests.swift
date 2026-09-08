@@ -210,6 +210,47 @@ final class StripDropRoutingTests: XCTestCase {
         }
     }
 
+    // MARK: - 让位空档
+
+    func testGhostInsertsBeforeOrAfterTheAnchor() {
+        let ids = ["a", "b", "c"]
+        XCTAssertEqual(StripDropRouting.ghostInsertionIndex(orderedIDs: ids, targetID: "a", after: false), 0)
+        XCTAssertEqual(StripDropRouting.ghostInsertionIndex(orderedIDs: ids, targetID: "a", after: true), 1)
+        XCTAssertEqual(StripDropRouting.ghostInsertionIndex(orderedIDs: ids, targetID: "c", after: true), 3)
+    }
+
+    /// 锚点是上一帧算的，这一帧那张卡可能已经不在了（应用退出 / 换屏过滤）。
+    /// 必须落末尾，绝不能返回越界下标——投影层拿它直接 `insert(at:)`。
+    func testGhostFallsToTailWhenAnchorIsGone() {
+        let ids = ["a", "b"]
+        XCTAssertEqual(StripDropRouting.ghostInsertionIndex(orderedIDs: ids, targetID: "gone", after: false), 2)
+        XCTAssertEqual(StripDropRouting.ghostInsertionIndex(orderedIDs: ids, targetID: nil, after: true), 2)
+        XCTAssertEqual(StripDropRouting.ghostInsertionIndex(orderedIDs: [], targetID: "a", after: true), 0)
+    }
+
+    /// **门控的命门**：指针停在空档里时，左右两张卡等距，判定会在「左邻的右边」和
+    /// 「右邻的左边」之间摇摆——两者指的是同一个空位。折成序号必须归一，否则每摇摆一次
+    /// 就是一趟「位置没变却重算整条任务条」。
+    func testEquivalentAnchorsCollapseToTheSameSlot() {
+        let ids = ["a", "b", "c"]
+        XCTAssertEqual(
+            StripDropRouting.ghostInsertionIndex(orderedIDs: ids, targetID: "a", after: true),
+            StripDropRouting.ghostInsertionIndex(orderedIDs: ids, targetID: "b", after: false)
+        )
+        XCTAssertEqual(
+            StripDropRouting.ghostInsertionIndex(orderedIDs: ids, targetID: "b", after: true),
+            StripDropRouting.ghostInsertionIndex(orderedIDs: ids, targetID: "c", after: false)
+        )
+    }
+
+    /// 变化门控的判据。同一个空位重复喂必须判为「没变」。
+    func testGhostEqualityGatesRedraws() {
+        let a = StripDropGhost(bundleID: "com.foo", insertIndex: 2)
+        XCTAssertEqual(a, StripDropGhost(bundleID: "com.foo", insertIndex: 2))
+        XCTAssertNotEqual(a, StripDropGhost(bundleID: "com.foo", insertIndex: 3))
+        XCTAssertNotEqual(a, StripDropGhost(bundleID: "com.other", insertIndex: 2))
+    }
+
     func testHiddenShelfIgnoresStaleShelfCoordinates() {
         // 视图侧必须传 nil 而不是旧帧：这条锁住「传了 nil 就绝不会再命中 stash」。
         let paths = ["/a"]

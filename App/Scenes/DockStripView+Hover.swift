@@ -61,7 +61,8 @@ extension DockStripView {
             return count > 0
                 ? String(format: String(localized: "Shelf · %d"), count)
                 : String(localized: "Shelf")
-        case .pinnedFolder, .divider:
+        case .pinnedFolder, .divider, .externalDropGhost:
+            // 空档本来就不上报悬停帧，走不到这儿；写死 nil 是第二道闸。
             return nil
         }
     }

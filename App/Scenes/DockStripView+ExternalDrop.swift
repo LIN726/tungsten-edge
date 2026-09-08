@@ -36,12 +36,75 @@ extension DockStripView {
     }
 
     /// performDrop/dropExited：会话结束 → 立即清高亮、作废看门狗、关门控（同步清,落定即灭,不留尾巴）。
-    func externalDropHoverEnded() {
+    ///
+    /// **让位空档不在这里清**：`performDrop` 也走这条，而真图标要等 `actionQueue` 把 bundleID
+    /// 解析完才进投影——这中间把空档撤掉就会看到「空档合上 → 图标弹出」闪一下。
+    /// 空档由 `keepDroppedApplications` 在真图标就位后清，外加 `armExternalDropGhostTimeout` 兜底。
+    /// - Parameter isLanding: `true` 只有 `performDrop` 传——那一支要把空档留给落定交接。
+    ///   其余收尾（`dropExited`、中转格开关变化）一律 `false`：没有落定要接，空档必须当场收掉，
+    ///   否则条上留一个永远不走的空位。
+    func externalDropHoverEnded(isLanding: Bool) {
         externalDropHoverActive = false
         externalDropGeneration &+= 1
         externalDropWatchdog?.invalidate()
         externalDropWatchdog = nil
         externalDropTarget = nil
+        if isLanding {
+            // 交接期的兜底就上在这一处，而不是落定路径深处：`performDrop` 在这之后还有
+            // 好几条提前 return（目标是 .none、没有 provider、URL 取空、一个应用都没解析出来），
+            // 每一条都不会走到落定。上在这里，任何一条都能在 1s 内自愈。
+            armExternalDropGhostTimeout()
+        } else {
+            clearExternalDropGhost()
+        }
+    }
+
+    /// 悬停期更新让位空档。`bundleID == nil`（不是应用拖放 / bundle 读不出 id）→ 收空档。
+    ///
+    /// **变化门控是这个函数存在的理由**：`dropUpdated` 每 ~50ms 调一次，而写一次 `@State`
+    /// 就是整条任务条重算一遍（实测过「1.2 秒拖动 46 次整条重算」）。锚点没变就一个字都不写。
+    func updateExternalDropGhost(bundleID: String?, atX x: CGFloat) {
+        // **门控与整条高亮同源，理由也同一条**：成功 drop 之后 ~330ms 系统会补发一次孤立的
+        // `dropUpdated`。没有这道闸，那一次会把落定时刚收掉的空档重新开出来，而且顺手作废
+        // 兜底 Timer——条上从此留一个永远不走的空位（2026-09-08 owner 实测，拖「查找」进条后
+        // 右边多一个空位，把「查找」移除也还在）。会话结束后既不能重开空档，也不能把正在
+        // 交接的空档抹掉，所以这里是直接返回，不是清空。
+        guard externalDropHoverActive else { return }
+        guard let bundleID else {
+            if externalDropGhost != nil { clearExternalDropGhost() }
+            return
+        }
+        // 落点判定与抽屉转正共用一份（`StripBlockLanding`）。空档不上报卡帧，所以 `chipFrames`
+        // 里只有真卡——但它们的**位置**已经被空档推开了，所以判定结果必须折成插入序号才稳定
+        //（理由见 `StripDropGhost`）。显示序按帧的左缘排，与渲染序同源。
+        let orderedLiveIDs = chipFrames.sorted { $0.value.minX < $1.value.minX }.map(\.key)
+        let target = blockTarget(atX: x, excluding: [])
+        let index = StripDropRouting.ghostInsertionIndex(orderedIDs: orderedLiveIDs,
+                                                         targetID: target?.id,
+                                                         after: target?.after ?? false)
+        let next = StripDropGhost(bundleID: bundleID, insertIndex: index)
+        guard next != externalDropGhost else { return }
+        externalDropGhostTimeout?.invalidate()
+        externalDropGhostTimeout = nil
+        externalDropGhost = next
+    }
+
+    /// 落定后给空档上一条有界兜底：真图标该进投影了却没进（bundle 坏了 / canKeep 不过 /
+    /// 解析失败）时，空档也必须自己走掉。
+    func armExternalDropGhostTimeout() {
+        guard externalDropGhost != nil else { return }
+        externalDropGhostTimeout?.invalidate()
+        let timer = Timer(timeInterval: 1.0, repeats: false) { _ in
+            clearExternalDropGhost()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        externalDropGhostTimeout = timer
+    }
+
+    func clearExternalDropGhost() {
+        externalDropGhostTimeout?.invalidate()
+        externalDropGhostTimeout = nil
+        externalDropGhost = nil
     }
 
     /// 设落点目标 + 重置拖放结束看门狗。`dropUpdated` 悬停期每 ~50ms 来一次会不断把 0.35s Timer 推后
@@ -101,8 +164,9 @@ extension DockStripView {
             let bundleIDs = paths.compactMap { path in
                 Bundle(url: URL(fileURLWithPath: path))?.bundleIdentifier
             }
-            guard !bundleIDs.isEmpty else { return }   // 坏 bundle / 没有 Info.plist → 静默忽略
             DispatchQueue.main.async {
+                // 坏 bundle / 没有 Info.plist → 静默忽略，但空档得立刻收掉（兜底 Timer 之前）。
+                guard !bundleIDs.isEmpty else { return clearExternalDropGhost() }
                 keepDroppedApplications(bundleIDs, atX: x)
             }
         }
@@ -110,6 +174,9 @@ extension DockStripView {
 
     /// 逐个勾保留 + 落位。第二个及以后的应用落在前一个右边，保持拖进来的顺序。
     private func keepDroppedApplications(_ bundleIDs: [String], atX x: CGFloat) {
+        // 空档在最后一句才撤——落点是拿它当锚点算的，撤早了 `blockTarget` 会把它让出来的
+        // 那段宽度算回去，图标落到隔壁。
+        defer { clearExternalDropGhost() }
         var previousAnchor: (id: String, after: Bool)?
         for bundleID in bundleIDs where keptAppStore.canKeep(bundleID) {
             // 落点：拖的是它自己已有的卡时要排除自己，否则整块会以自己为锚、原地不动。

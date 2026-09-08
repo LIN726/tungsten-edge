@@ -174,6 +174,19 @@ extension DockStripView {
         // 也**必须在「拖出即合拢」的剔除之前**——拖走一张卡会让剩下的卡重算公共段，标签当场变长，
         // 拖到一半文字跳动。
         let labelTitleByChipID = Self.labelTitles(for: renderedLive)
+        // 让位空档（从访达拖应用进条的悬停预览）。**注入点必须在这里**：顺序层
+        // （`stripOrderStore.reconciled`）和多屏过滤都已经跑完，所以空档进不了 `liveOrderIDs`
+        // 和 `appKeys`——顺序层一旦记住这个幽灵 id，就会在它消失后按 5s 缺席锚点继续为它留位。
+        // 规矩与多屏过滤同源：只在顺序层之后动渲染数组。
+        let liveWithGhost: [StripEntry] = {
+            guard let ghost = externalDropGhost else { return renderedLive }
+            // 序号是上一帧按卡帧算的，这一帧 live 区可能已经少了一张卡（应用退出 / 换屏过滤），
+            // 所以必须夹住——`insert(at:)` 越界是直接崩。
+            let index = min(max(ghost.insertIndex, 0), renderedLive.count)
+            var next = renderedLive
+            next.insert(.externalDropGhost(bundleID: ghost.bundleID), at: index)
+            return next
+        }()
         let folderEntries = (settingsStore.showShelf ? [StripEntry.shelf] : [])
             + pinnedFolderStore.folderPaths.map { StripEntry.pinnedFolder(path: $0) }
         // 拖出即合拢（owner 2026-09-03）：条上起拖的那张卡离开了条 → 从渲染里去掉（不是透明），
@@ -186,7 +199,7 @@ extension DockStripView {
             if p.source == .folder { return StripEntry.pinnedFolder(path: p.id).id }
             return Self.stripEntryID(for: p)
         }()
-        var zones = [messaging, folderEntries, renderedLive]
+        var zones = [messaging, folderEntries, liveWithGhost]
             .map { zone in zone.filter { $0.id != collapsedEntryID } }
             .filter { !$0.isEmpty }
         var entries: [StripEntry] = []

@@ -20,10 +20,14 @@ struct StripFileDropDelegate: DropDelegate {
     /// 视图侧据此做「高亮只能由 dropEntered 点亮 + 拖放结束看门狗」（见 externalDropHover*）。
     let onHoverBegan: (StripDropRouting.Target) -> Void
     let onHoverMoved: (StripDropRouting.Target) -> Void
-    let onHoverEnded: () -> Void
+    /// 参数 = 「这一支是落定吗」。只有 `performDrop` 传 `true`（空档留给落定交接）。
+    let onHoverEnded: (Bool) -> Void
     let onCommit: (StripDropRouting.Target, [URL]) -> Void
     /// 拖进来的应用 bundle + 落点 x（"strip" 空间）。见 `handleExternalApplicationDrop`。
     let onCommitApplications: ([URL], CGPoint) -> Void
+    /// 悬停期的让位空档：拖的是应用时给 (bundleID, 落点)，否则 `nil`（收空档）。
+    /// 视图侧负责把它折成锚点并做变化门控——**这里每 ~50ms 就会调一次**。
+    let onGhostMoved: (String?, CGPoint) -> Void
 
     /// 悬停期的目标（决定高亮与光标）。应用一律 `.keepApp`。
     private func route(_ info: DropInfo) -> StripDropRouting.Target {
@@ -50,23 +54,27 @@ struct StripFileDropDelegate: DropDelegate {
 
     func dropEntered(info: DropInfo) {
         onHoverBegan(route(info))
+        onGhostMoved(DragPasteboardInspector.applicationBundleID(), info.location)
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         let target = route(info)
         onHoverMoved(target)
+        onGhostMoved(DragPasteboardInspector.applicationBundleID(), info.location)
         return DropProposal(operation: target == .none ? .forbidden : .copy)
     }
 
     func dropExited(info: DropInfo) {
-        onHoverEnded()
+        onHoverEnded(false)   // 没有落定要接 → 空档当场收掉
     }
 
     func performDrop(info: DropInfo) -> Bool {
         let target = route(info)
         let fileTarget = fileRoute(info)
         let location = info.location
-        onHoverEnded()   // 落定即灭高亮,同步清（系统在这之后仍可能补发孤立 dropUpdated,已被门控忽略）。
+        // 落定即灭高亮,同步清（系统在这之后仍可能补发孤立 dropUpdated,已被门控忽略）。
+        // 传 true：空档要留到真图标进投影，由 `keepDroppedApplications` 收（外加兜底 Timer）。
+        onHoverEnded(true)
         guard target != .none else { return false }
         let providers = info.itemProviders(for: [UTType.fileURL])
         guard !providers.isEmpty else { return false }
@@ -107,21 +115,40 @@ struct StripFileDropDelegate: DropDelegate {
     ///
     /// `dropUpdated` 每 ~50ms 来一次,所以按 `changeCount` 缓存——一次拖放会话内只读一次盘。
     enum DragPasteboardInspector {
-        private static var cachedChangeCount: Int?
-        private static var cachedResult = false
+        private struct Session {
+            let changeCount: Int
+            let containsApplication: Bool
+            /// 第一个应用 bundle 的 id。**解析 Info.plist 是读盘**，所以一次拖放会话只做一次
+            /// ——`dropUpdated` 每 ~50ms 一次，逐次读盘会把主线程拖垮。
+            let applicationBundleID: String?
+        }
+        private static var session: Session?
 
         /// 拖放剪贴板里有没有应用 bundle。读不到（剪贴板为空 / 非文件拖放）一律 false:
         /// 保持原有的文件语义，落定时还会按真实 URL 再判一次。
         /// 只在主线程调（DropDelegate 的回调都在主线程），缓存因此不上锁。
         static func containsApplication() -> Bool {
+            currentSession().containsApplication
+        }
+
+        /// 让位空档要显示给谁。`nil` = 不是应用拖放，或 bundle 坏了读不出 id → 不让位。
+        static func applicationBundleID() -> String? {
+            currentSession().applicationBundleID
+        }
+
+        private static func currentSession() -> Session {
             let pasteboard = NSPasteboard(name: .drag)
             let changeCount = pasteboard.changeCount
-            if cachedChangeCount == changeCount { return cachedResult }
+            if let session, session.changeCount == changeCount { return session }
             let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
-            let result = urls.contains(where: isApplication)
-            cachedChangeCount = changeCount
-            cachedResult = result
-            return result
+            let apps = urls.filter(isApplication)
+            let next = Session(
+                changeCount: changeCount,
+                containsApplication: !apps.isEmpty,
+                applicationBundleID: apps.first.flatMap { Bundle(url: $0)?.bundleIdentifier }
+            )
+            session = next
+            return next
         }
 
         /// 是不是应用 bundle。先问 UTType（认得改过大小写 / 没有扩展名的 bundle），

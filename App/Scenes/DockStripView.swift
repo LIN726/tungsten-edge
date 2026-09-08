@@ -97,6 +97,14 @@ struct DockStripView: View {
     /// 外部文件拖入的实时落点目标（悬停高亮用;nil = 没有外部拖拽悬停）。
     @State var externalDropTarget: StripDropRouting.Target?
 
+    /// 从访达拖应用进条时的让位空档（nil = 不让位）。投影层按它插一个 `.externalDropGhost`。
+    /// **只在锚点真的变了时才写**（`updateExternalDropGhost` 的门控）——它一变整条就重算。
+    @State var externalDropGhost: StripDropGhost?
+
+    /// 空档在落定期的兜底清理：`performDrop` 之后空档要留到真图标进投影才撤（否则会看到
+    /// 「空档合上 → 图标弹出」闪一下），这个 Timer 保证任何异常路径下它都不会赖着不走。
+    @State var externalDropGhostTimeout: Timer?
+
     /// 外部拖入高亮的「拖放结束看门狗」+「点亮门控」。SwiftUI 文件 drop 有两种收尾异常:
     /// ①拖放在最后一次 dropUpdated 后不给任何 performDrop/dropExited 收尾回调 → 高亮遗留在 .pin;
     /// ②成功 drop 后 ~330ms 会补发一次孤立的 dropUpdated 把高亮重新点亮。
@@ -222,10 +230,13 @@ struct DockStripView: View {
             headSlack: StripDropRouting.defaultHeadSlack * dockScale,
             onHoverBegan: { externalDropHoverBegan($0) },
             onHoverMoved: { externalDropHoverMoved($0) },
-            onHoverEnded: { externalDropHoverEnded() },
+            onHoverEnded: { isLanding in externalDropHoverEnded(isLanding: isLanding) },
             onCommit: { target, urls in handleExternalDrop(target, urls: urls) },
             onCommitApplications: { urls, location in
                 handleExternalApplicationDrop(urls, atX: location.x)
+            },
+            onGhostMoved: { bundleID, location in
+                updateExternalDropGhost(bundleID: bundleID, atX: location.x)
             }
         ))
         // 与 "strip" 命名空间同一视图 → 屏幕 frame 即 "strip" 空间原点，供抽屉拖回任务条做坐标映射 + 进出判定。
@@ -357,7 +368,7 @@ struct DockStripView: View {
         // 入场动画只摘 "shelf" 这一个 id——整片清掉会让重新勾上时所有文件夹 chip 一起重放入场。
         .onChange(of: settingsStore.showShelf) { visible in
             if !visible { animatedEntryIDs.remove("shelf") }
-            externalDropHoverEnded()
+            externalDropHoverEnded(isLanding: false)
         }
         // No .frame(maxWidth: .infinity) here — lets NSHostingView.fittingSize reflect
         // the natural content width so AppDelegate can read it for panel sizing.
@@ -539,8 +550,8 @@ struct DockStripView: View {
             }
         case let .keptApp(bid):
             launcherTap(bid, hasRealWindow: false)   // 保留占位只在没有真窗口时存在
-        case .pinnedFolder, .shelf, .divider:
-            return
+        case .pinnedFolder, .shelf, .divider, .externalDropGhost:
+            return   // 空档不可拖，也就不会有飞行中的载荷指向它
         }
     }
 
@@ -649,7 +660,7 @@ struct DockStripView: View {
             // 文件夹 chip 两档都是 1.12 底锚放大，且没有按压反馈（AGENTS《Taskbar Size Tiers》）。
             return DragCarrierGeometry.pickUpPose(chipHeight: height, pressedScale: nil,
                                                   hoverScale: hovered ? PinnedFolderChip.hoverScale : nil)
-        case .shelf, .divider:
+        case .shelf, .divider, .externalDropGhost:
             return .resting
         }
     }
@@ -1093,6 +1104,14 @@ struct DockStripView: View {
                 )
         case .divider:
             stripEntryView(entry, projection: projection)
+        case .externalDropGhost:
+            // 让位空档：**刻意不经 `stripEntryView`**。那个函数是悬停帧的唯一上报口，
+            // 而空档既不能上报悬停帧（不弹气泡），更不能上报 `ChipFramePreferenceKey`
+            // ——`chipFrames` 是落点判定 `StripBlockLanding` 自己的输入，空档进去就会
+            // 自我锚定：算出来的落点指向空档本身，指针一动就抖。这里只占一张卡的宽度。
+            Color.clear
+                .frame(width: ChipPillMetrics.cardWidth * dockScale,
+                       height: ChipPillMetrics.chipHeight * dockScale)
         }
     }
 
@@ -1267,6 +1286,10 @@ struct DockStripView: View {
                 onTap: reopen,
                 onLaunch: { runtime.beginLaunch(bid) }
             )
+        case .externalDropGhost:
+            // 走不到：`chipWithReorder` 的空档分支不经 `stripEntryView`（理由见那里），
+            // 载体快照也不会拍一个不可拖的东西。留空是为了不给这个 switch 加 `default`。
+            EmptyView()
         }
     }
 

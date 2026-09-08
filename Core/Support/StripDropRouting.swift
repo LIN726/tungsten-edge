@@ -87,3 +87,28 @@ enum StripDropRouting {
         return .pin(insertIndex: index)
     }
 }
+
+/// 从访达拖应用进条时、悬停期让位让出来的那个空档。
+///
+/// **存的是插入序号，不是「哪张卡的左/右」**，这一点是载重的。空档一插进去，它右边所有
+/// 卡片都往右挪了一张卡的宽度；下一次 `dropUpdated` 量到的就是挪过之后的帧。指针停在空档
+/// 里时左右两张卡等距，`StripBlockLanding` 会在「左邻的右边」和「右邻的左边」之间摇摆——
+/// 这两者**指的是同一个空位**，但作为 `(id, after)` 二元组并不相等。存二元组的话，门控就会
+/// 让一串「位置没变却重算整条任务条」的写入漏过去（这仓库实测过「1.2 秒拖动 46 次整条重算」）。
+/// 折成序号，两种说法归一，门控才真的挡得住。
+struct StripDropGhost: Equatable {
+    let bundleID: String
+    /// 空档插在 live 区显示序的第几位。
+    let insertIndex: Int
+}
+
+extension StripDropRouting {
+    /// `StripBlockLanding` 的（锚点卡, 左/右）折成插入序号（纯函数，进单测）。
+    /// 锚点不在当前显示序里（那张卡刚消失 / 被换屏过滤掉）→ 落末尾，绝不返回越界下标。
+    static func ghostInsertionIndex(orderedIDs: [String], targetID: String?, after: Bool) -> Int {
+        guard let targetID, let index = orderedIDs.firstIndex(of: targetID) else {
+            return orderedIDs.count
+        }
+        return after ? index + 1 : index
+    }
+}
