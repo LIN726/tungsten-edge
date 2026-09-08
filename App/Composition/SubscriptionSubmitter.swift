@@ -193,8 +193,10 @@ struct SubscriptionAlertContent: Equatable {
                 // 双重确认的流程，不点确认信是不会真正进名单的，所以这句必须说出来，
                 // 否则用户会以为已经完事了。**垃圾邮件那半句同样不能省**：2026-08-25
                 // 小红书 / B 站有用户反馈收不到确认信，而实测信都投递成功了——
-                // 人没在收件箱看到。官网侧同一句话已经同步（functions/_lib/i18n.js）。
-                message: String(localized: "Check your inbox and click the confirmation link to finish subscribing. If it is not there, check your spam folder."),
+                // 人没在收件箱看到。**Gmail 那半句同样不能省**：确认信带 List-Unsubscribe 头
+                // （为 QQ 加的），Gmail 会据此归进「推广」标签页，收件箱和垃圾箱都看不到。
+                // 官网侧同一句话已经同步（functions/_lib/i18n.js）。
+                message: String(localized: "Check your inbox and click the confirmation link to finish subscribing. If it is not there, check your spam folder, or the Promotions tab in Gmail."),
                 didSubscribe: true
             )
         case .alreadySubscribed:

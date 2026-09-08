@@ -715,18 +715,18 @@
         }
       }
     },
-    "Check your inbox and click the confirmation link to finish subscribing. If it is not there, check your spam folder.": {
+    "Check your inbox and click the confirmation link to finish subscribing. If it is not there, check your spam folder, or the Promotions tab in Gmail.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请到邮箱点击确认链接完成订阅。如果收件箱没有，请查一下垃圾邮件。"
+            "value": "请到邮箱点击确认链接完成订阅。如果收件箱没有，请查一下垃圾邮件；Gmail 则要看「推广」标签页。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check your inbox and click the confirmation link to finish subscribing. If it is not there, check your spam folder."
+            "value": "Check your inbox and click the confirmation link to finish subscribing. If it is not there, check your spam folder, or the Promotions tab in Gmail."
           }
         }
       }
