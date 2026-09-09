@@ -1,70 +1,70 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "On one display": {
-      "comment": "任务条显示位置子菜单 · 第一组标题（跟随鼠标 / 固定到某屏）",
+    "Single-display mode": {
+      "comment": "Dock 栏显示位置子菜单 · 第一组标题（悬停底边切换 / 固定到某屏）",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "只在一块屏上"
+            "value": "单屏模式"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "On one display"
+            "value": "Single-display mode"
           }
         }
       }
     },
-    "One taskbar per display": {
-      "comment": "任务条显示位置子菜单 · 第二组标题（③④）",
+    "Multi-display mode": {
+      "comment": "Dock 栏显示位置子菜单 · 第二组标题（③④）",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每块屏各一条"
+            "value": "多屏模式"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "One taskbar per display"
+            "value": "Multi-display mode"
           }
         }
       }
     },
-    "Show all windows": {
-      "comment": "任务条显示位置 ③：每块屏各一条、内容相同",
+    "List every window": {
+      "comment": "Dock 栏显示位置 ③：每块屏各一条、内容相同。动词用「列出」是为了避开系统 Dock 右键菜单的「显示所有窗口」（那是摊开窗口）",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示全部窗口"
+            "value": "列出全部窗口"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show all windows"
+            "value": "List every window"
           }
         }
       }
     },
-    "Show only this display's windows": {
-      "comment": "任务条显示位置 ④：每块屏各一条、各屏只显示本屏窗口",
+    "List only this display's windows": {
+      "comment": "Dock 栏显示位置 ④：每块屏各一条、各屏只列本屏窗口",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "只显示本屏的窗口"
+            "value": "只列出本屏的窗口"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show only this display's windows"
+            "value": "List only this display's windows"
           }
         }
       }
@@ -1357,19 +1357,19 @@
         }
       }
     },
-    "Follow the mouse": {
-      "comment": "任务条显示位置的默认档",
+    "Hover a screen's bottom edge to switch": {
+      "comment": "Dock 栏显示位置的默认档：鼠标在另一块屏底边驻留约 0.35s 才切屏，不是跟着光标滑",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "跟随鼠标"
+            "value": "鼠标悬停屏幕底部切换"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Follow the mouse"
+            "value": "Hover a screen's bottom edge to switch"
           }
         }
       }

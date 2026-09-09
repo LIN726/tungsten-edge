@@ -152,7 +152,7 @@ final class TaskbarScreenPlacementTests: XCTestCase {
             connectedScreens: screens
         )
         XCTAssertEqual(presentation.items.count, 6)
-        // 未连接的固定屏项跟在在场屏之后、仍在「只在一块屏上」这一组里。
+        // The disconnected pinned row follows the present screens, still inside the 单屏模式 group.
         XCTAssertEqual(presentation.items[3].selection, .screen(uuid: "Z"))
         XCTAssertEqual(presentation.items.filter(\.isChecked).map(\.selection), [.screen(uuid: "Z")])
         // 文案随语言变，只锁住那块屏的名字被带进了标题。
@@ -186,7 +186,7 @@ final class TaskbarScreenPlacementTests: XCTestCase {
         XCTAssertEqual(selected.items.filter(\.isChecked).map(\.selection), [.allScreensPerDisplay])
     }
 
-    /// 两组 + 灰色组标题（owner 2026-09-02）：第一组是跟随鼠标 / 各屏 /（未连接固定屏），第二组是两档「每块屏各一条」。
+    /// Two groups with dimmed headers: 单屏模式 (hover-to-switch / each screen / a disconnected pinned row), then 多屏模式 (③④).
     func testRowsSplitIntoTwoTitledGroups() {
         typealias Row = TaskbarScreenMenuPresentation.Row
         let presentation = TaskbarScreenMenuPresentation(

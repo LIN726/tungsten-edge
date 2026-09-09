@@ -183,12 +183,12 @@ struct TaskbarScreenMenuPresentation {
         // 固定到外接屏后把它拔掉 / 开着「所有屏幕」拔到只剩一块，整行消失 → 再也切不回「跟随鼠标」。
         isHidden = connectedScreens.count < 2 && pinned == nil && !placement.showsOnEveryDisplay
 
-        // 第一组：只在一块屏上（跟随鼠标 / 固定到某屏）。
+        // Group 1 — single-display mode: hover-to-switch, or pinned to one screen.
         var rows: [Row] = [
-            .header(String(localized: "On one display")),
+            .header(String(localized: "Single-display mode")),
             .option(Item(
                 selection: .followMouse,
-                title: String(localized: "Follow the mouse"),
+                title: String(localized: "Hover a screen's bottom edge to switch"),
                 isChecked: placement == .followMouse
             ))
         ]
@@ -207,17 +207,17 @@ struct TaskbarScreenMenuPresentation {
                 isChecked: true
             )))
         }
-        // 第二组：每块屏各一条（③ 内容相同 / ④ 各屏只显示本屏窗口）。
+        // Group 2 — multi-display mode: ③ same content everywhere / ④ each bar lists only its own screen.
         rows.append(.separator)
-        rows.append(.header(String(localized: "One taskbar per display")))
+        rows.append(.header(String(localized: "Multi-display mode")))
         rows.append(.option(Item(
             selection: .allScreens,
-            title: String(localized: "Show all windows"),
+            title: String(localized: "List every window"),
             isChecked: placement == .allScreens
         )))
         rows.append(.option(Item(
             selection: .allScreensPerDisplay,
-            title: String(localized: "Show only this display's windows"),
+            title: String(localized: "List only this display's windows"),
             isChecked: placement == .allScreensPerDisplay
         )))
         self.rows = rows
