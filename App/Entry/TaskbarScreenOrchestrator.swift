@@ -40,6 +40,8 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
     private let runningApplicationStore: RunningApplicationStore
     private let appMembershipController: AppMembershipController
     private let displayTopologyStore: DisplayTopologyStore
+    private let topologySnapshotProvider: @MainActor () -> ScreenTopologySnapshot
+    private let seedRetryScheduler: TaskbarPerDisplaySeedController.ScheduleAfter
     private let logger = Logger(subsystem: "com.caye.macosdockcc.v2", category: "taskbar-screens")
 
     var onAddFolder: () -> Void = {} {
@@ -54,6 +56,7 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
     private var placementSubscription: AnyCancellable?
     private var fullscreenIntentEnabledSubscription: AnyCancellable?
     private var fullscreenIntentMonitor: FullscreenIntentMonitor?
+    private var perDisplaySeedController: TaskbarPerDisplaySeedController?
 
     // MARK: 鼠标移动监视器（从 PanelCoordinator 抬上来，逐字保留语义）
     private var hoverLocalMouseMonitor: Any?
@@ -82,7 +85,15 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
          keptAppStore: KeptAppStore,
          runningApplicationStore: RunningApplicationStore,
          appMembershipController: AppMembershipController,
-         displayTopologyStore: DisplayTopologyStore) {
+         displayTopologyStore: DisplayTopologyStore,
+         topologySnapshotProvider: @escaping @MainActor () -> ScreenTopologySnapshot = {
+             DisplayIdentity.topologySnapshot()
+         },
+         seedRetryScheduler: @escaping TaskbarPerDisplaySeedController.ScheduleAfter = { delay, action in
+             let item = DispatchWorkItem(block: action)
+             DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+             return item
+         }) {
         self.runtime = runtime
         self.drawerStore = drawerStore
         self.messagingStore = messagingStore
@@ -97,6 +108,8 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
         self.runningApplicationStore = runningApplicationStore
         self.appMembershipController = appMembershipController
         self.displayTopologyStore = displayTopologyStore
+        self.topologySnapshotProvider = topologySnapshotProvider
+        self.seedRetryScheduler = seedRetryScheduler
         self.dragController = DragController(
             drawerStore: drawerStore,
             messagingStore: messagingStore,
@@ -115,6 +128,7 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
 
     deinit {
         MainActor.assumeIsolated {
+            perDisplaySeedController?.cancel()
             removeHoverMouseMonitorsOnly()
         }
         menuTrackingPollTimer?.invalidate()
@@ -140,7 +154,10 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
     func start() {
         guard !started else { return }
         started = true
-        rebuildUnits(reason: "start")
+        let seedController = makePerDisplaySeedController()
+        perDisplaySeedController = seedController
+        let snapshot = seedController.prepareForTopologyChange()
+        rebuildUnits(reason: "start", connectedKeys: snapshot.identifiedDisplayUUIDs)
         // 载体面板提前建好，别让用户的第一次拖动付那 20ms + 一次 39ms 主线程卡顿
         // （理由与实测见 `DragController.prewarmCarrier`）。**排到下一轮 run loop**：
         // 启动是一整笔首帧事务，不能往里塞额外的 SwiftUI 布局。
@@ -156,7 +173,10 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                self.rebuildUnits(reason: "placement")
+                self.rebuildUnits(
+                    reason: "placement",
+                    connectedKeys: self.displayTopologyStore.latestSnapshot.identifiedDisplayUUIDs
+                )
                 self.reconcileHoverMouseMonitors()
             }
         fullscreenIntentEnabledSubscription = settingsStore.$fullscreenIntentEnabled
@@ -187,6 +207,8 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
             unit.coordinator.tearDown()
         }
         units = []
+        perDisplaySeedController?.cancel()
+        perDisplaySeedController = nil
         placementSubscription = nil
         fullscreenIntentEnabledSubscription = nil
         NotificationCenter.default.removeObserver(self)
@@ -202,16 +224,12 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
 
     // MARK: - 单元集合
 
-    private var connectedDisplayUUIDs: [String] {
-        NSScreen.screens.compactMap { DisplayIdentity.uuidString(for: $0) }
-    }
-
     /// 按当前设置与屏集合建 / 拆单元。目标 key 列表没变就什么都不做（幂等，可在任何通知里调）。
-    private func rebuildUnits(reason: String) {
+    private func rebuildUnits(reason: String, connectedKeys: [String]) {
         guard started, !isSuspended else { return }
         let desired = TaskbarDisplaySet.desiredUnitKeys(
             placement: settingsStore.taskbarScreenPlacement,
-            connectedKeys: connectedDisplayUUIDs
+            connectedKeys: connectedKeys
         )
         let current = units.map(\.key)
         guard desired != current else { return }
@@ -280,11 +298,52 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
 
     @objc private func screenParametersChanged() {
         dragController.cancelDrag()   // 切屏/分辨率变 → 取消进行中的跨面板拖动，免得载体留在旧屏坐标
-        // 先按屏集合建 / 拆（③④），再转给幸存者各自归位 / 重布局。
-        rebuildUnits(reason: "screens")
+        // One ordered snapshot feeds the shared display table, the seed decision and the unit set in
+        // turn — never re-read NSScreen in between.
+        // With no seed controller the screen handling still runs to completion: the controller owns
+        // only the one-shot first-run seed, while rebuilding units, re-homing each unit, pushing panel
+        // screen frames and reconciling hover monitors are core multi-display work that must not hang
+        // off its lifetime.
+        let snapshot: ScreenTopologySnapshot
+        if let seedController = perDisplaySeedController {
+            snapshot = seedController.prepareForTopologyChange()
+        } else {
+            snapshot = topologySnapshotProvider()
+            displayTopologyStore.apply(snapshot)
+        }
+        rebuildUnits(reason: "screens", connectedKeys: snapshot.identifiedDisplayUUIDs)
         units.forEach { $0.coordinator.screenParametersChanged() }
         pushPanelScreensToIntentMonitor()
         reconcileHoverMouseMonitors()  // 屏幕数量变了：单屏↔多屏切换监视器是否还有存在的必要
+    }
+
+    private func makePerDisplaySeedController() -> TaskbarPerDisplaySeedController {
+        TaskbarPerDisplaySeedController(
+            snapshotProvider: topologySnapshotProvider,
+            isSeedPending: { [weak settingsStore] in
+                settingsStore?.taskbarPerDisplaySeedPending ?? false
+            },
+            hasStoredPlacementChoice: { [weak settingsStore] in
+                settingsStore?.hasStoredTaskbarScreenChoice ?? true
+            },
+            applySnapshot: { [weak displayTopologyStore] snapshot in
+                displayTopologyStore?.apply(snapshot)
+            },
+            applySeed: { [weak self, weak settingsStore] in
+                settingsStore?.applyTaskbarPerDisplaySeed()
+                self?.logger.info("seeded allScreensPerDisplay for first multi-display topology")
+            },
+            consumeWithoutSeeding: { [weak settingsStore] in
+                settingsStore?.consumeTaskbarPerDisplaySeedIfPresent()
+            },
+            onRetrySeeded: { [weak self] snapshot in
+                self?.rebuildUnits(
+                    reason: "seed-retry",
+                    connectedKeys: snapshot.identifiedDisplayUUIDs
+                )
+            },
+            scheduleAfter: seedRetryScheduler
+        )
     }
 
     /// 同时只开一个抽屉 / 弹窗 / 气泡：某单元要开时关掉其他单元的。

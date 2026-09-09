@@ -166,7 +166,7 @@ final class AppSettingsStoreTests: XCTestCase {
     func testWindowLiftSeedOnlyAppliesWhenTheUserNeverTouchedIt() {
         let fresh = makeDefaults()
         let store = AppSettingsStore(defaults: fresh)
-        store.seedWindowLiftEnabledForFreshInstall()
+        store.seedWindowLiftEnabledForFreshInstall(lineage: .pristine)
         XCTAssertTrue(store.windowLiftEnabled, "全新安装播种为开")
         XCTAssertTrue(AppSettingsStore(defaults: fresh).windowLiftEnabled, "要落盘")
 
@@ -175,12 +175,12 @@ final class AppSettingsStoreTests: XCTestCase {
         let existing = AppSettingsStore(defaults: chosen)
         existing.setWindowLiftEnabled(true)
         existing.setWindowLiftEnabled(false)
-        existing.seedWindowLiftEnabledForFreshInstall()
+        existing.seedWindowLiftEnabledForFreshInstall(lineage: .pristine)
         XCTAssertFalse(existing.windowLiftEnabled, "键已存在 = 用户拨过，尊重")
 
         // 幂等：播种后再调一次不改变任何东西。
         store.setWindowLiftEnabled(false)
-        store.seedWindowLiftEnabledForFreshInstall()
+        store.seedWindowLiftEnabledForFreshInstall(lineage: .pristine)
         XCTAssertFalse(store.windowLiftEnabled)
     }
 
@@ -1360,6 +1360,70 @@ final class AppSettingsStoreTests: XCTestCase {
             defaults.dictionary(forKey: "com.tungsten.edge.taskbarScreen.pinned"),
             "remembered 惯例：切回跟随鼠标保留上次选的屏"
         )
+    }
+
+    func testTaskbarPerDisplaySeedArmsOnlyForPristineInstallAndOnlyOnce() {
+        let defaults = makeDefaults()
+        let store = AppSettingsStore(defaults: defaults)
+
+        store.armTaskbarPerDisplaySeedForFreshInstall(lineage: .priorUse)
+        XCTAssertNil(defaults.object(forKey: "com.tungsten.edge.taskbarScreen.perDisplaySeedPending"))
+
+        store.armTaskbarPerDisplaySeedForFreshInstall(lineage: .pristine)
+        XCTAssertTrue(store.taskbarPerDisplaySeedPending)
+        store.consumeTaskbarPerDisplaySeedIfPresent()
+        store.armTaskbarPerDisplaySeedForFreshInstall(lineage: .pristine)
+        XCTAssertFalse(store.taskbarPerDisplaySeedPending, "consumed marker must never re-arm")
+    }
+
+    func testAppSettingsStoreInitNeverArmsTaskbarPerDisplaySeed() {
+        let defaults = makeDefaults()
+
+        _ = AppSettingsStore(defaults: defaults)
+
+        XCTAssertNil(defaults.object(forKey: "com.tungsten.edge.taskbarScreen.perDisplaySeedPending"))
+    }
+
+    func testExplicitUnchangedPlacementChoiceConsumesTaskbarPerDisplaySeed() {
+        let defaults = makeDefaults()
+        let store = AppSettingsStore(defaults: defaults)
+        store.armTaskbarPerDisplaySeedForFreshInstall(lineage: .pristine)
+
+        store.setTaskbarScreenPlacement(.followMouse)
+
+        XCTAssertFalse(store.taskbarPerDisplaySeedPending)
+        XCTAssertNil(defaults.object(forKey: "com.tungsten.edge.taskbarScreen.mode"))
+    }
+
+    func testTaskbarPerDisplaySeedWritesModeAndConsumesMarker() {
+        let defaults = makeDefaults()
+        let store = AppSettingsStore(defaults: defaults)
+        store.armTaskbarPerDisplaySeedForFreshInstall(lineage: .pristine)
+
+        store.applyTaskbarPerDisplaySeed()
+
+        XCTAssertEqual(store.taskbarScreenPlacement, .allScreensPerDisplay)
+        XCTAssertEqual(defaults.string(forKey: "com.tungsten.edge.taskbarScreen.mode"), "allScreensPerDisplay")
+        XCTAssertFalse(store.taskbarPerDisplaySeedPending)
+    }
+
+    func testTaskbarPlacementChoiceDoesNotCreateSeedMarkerForUpgrader() {
+        let defaults = makeDefaults()
+        let store = AppSettingsStore(defaults: defaults)
+
+        store.setTaskbarScreenPlacement(.allScreens)
+
+        XCTAssertNil(defaults.object(forKey: "com.tungsten.edge.taskbarScreen.perDisplaySeedPending"))
+    }
+
+    func testPriorUseLineageCannotSeedWindowLift() {
+        let defaults = makeDefaults()
+        let store = AppSettingsStore(defaults: defaults)
+
+        store.seedWindowLiftEnabledForFreshInstall(lineage: .priorUse)
+
+        XCTAssertFalse(store.windowLiftEnabled)
+        XCTAssertNil(defaults.object(forKey: "com.tungsten.edge.windowLiftEnabled"))
     }
 
     private func makeDefaults() -> UserDefaults {

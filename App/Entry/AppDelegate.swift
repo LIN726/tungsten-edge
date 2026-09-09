@@ -6,9 +6,12 @@ import os
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Must be the **first** stored property: every other store writes defaults inside its own
+    /// init, so a snapshot taken one step later can no longer tell a prior install apart.
+    private let installLineage = InstallLineage.capture()
     private let inventoryLog = WindowInventoryAnomalyLog()
     /// 在场屏幕表的唯一来源：窗口清单（归属键）与任务条投影（多屏 ④ 按屏过滤）都读它。
-    let displayTopologyStore = DisplayTopologyStore()
+    let displayTopologyStore = DisplayTopologyStore(initialSnapshot: DisplayIdentity.topologySnapshot())
     private(set) lazy var runtime = AppRuntime(
         inventoryLog: inventoryLog,
         displayTableProvider: { [displayTopologyStore] in displayTopologyStore.table },
@@ -125,14 +128,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 这三条分支的用户都是真的运行过钨极的人，将来转收费判定老用户时不该把谁漏掉。
         // 只写一次、之后永不覆盖，理由见 `InstallationRecord`。
         //
-        // ⚠️ 顺序承重：**先取「是不是全新安装」，再写首装键**。写完再问永远得到「老用户」，
-        // 下面那条播种就再也不会对任何人生效（静默失效，没有任何报错）。
-        let isFreshInstall = InstallationRecord.firstLaunchDate() == nil
+        // Install lineage was captured before any store was constructed; the first-launch stamp
+        // still lands ahead of every runtime branch.
+        let isFreshInstall = installLineage == .pristine
         InstallationRecord.recordFirstLaunchIfNeeded()
         // 全新安装把最大化避让播种为开；老用户维持关（它会改写别人应用的窗口尺寸，
         // 不能靠一次升级静默打开）。理由见 `AppSettingsStore.seedWindowLiftEnabledForFreshInstall`。
         if isFreshInstall {
-            settingsStore.seedWindowLiftEnabledForFreshInstall()
+            settingsStore.seedWindowLiftEnabledForFreshInstall(lineage: installLineage)
+            settingsStore.armTaskbarPerDisplaySeedForFreshInstall(lineage: installLineage)
         }
 
         // **无条件钉死浅色，这一句不能省。** 产品固定浅色（owner 2026-08-16 删掉深色模式），

@@ -249,7 +249,8 @@ final class AppTracker: ObservableObject {
         )))
         // 通知先订阅再 seed：seed 期间的启动/退出事件不再漏（addApp 有 apps[pid] == nil guard，重复准入安全）。
         subscribeWorkspaceNotifications()
-        // 屏参数变化：跳一拍再刷，让 `DisplayTopologyStore` 的同步观察者先把表换好。
+        // Screen parameters changed: skip one turn before refreshing so `TaskbarScreenOrchestrator`
+        // has pushed the shared topology snapshot into the common table first.
         screenParametersObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,

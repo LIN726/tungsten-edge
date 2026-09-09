@@ -116,6 +116,12 @@ final class AppSettingsStore: ObservableObject {
 
     var nativeDockAutoHideEnabled: Bool { nativeDockAutoHideDelay != Self.neverHideDelay }
     var edgeAutoHideEnabled: Bool { edgeAutoHideDelay != Self.neverHideDelay }
+    var taskbarPerDisplaySeedPending: Bool {
+        defaults.bool(forKey: Keys.taskbarScreenPerDisplaySeedPending)
+    }
+    var hasStoredTaskbarScreenChoice: Bool {
+        defaults.object(forKey: Keys.taskbarScreenMode) != nil
+    }
 
     private let defaults: UserDefaults
 
@@ -251,6 +257,7 @@ final class AppSettingsStore: ObservableObject {
     }
 
     func setTaskbarScreenPlacement(_ value: TaskbarScreenPlacement) {
+        consumeTaskbarPerDisplaySeedIfPresent()
         guard taskbarScreenPlacement != value else { return }
         taskbarScreenPlacement = value
         defaults.set(value.mode.rawValue, forKey: Keys.taskbarScreenMode)
@@ -262,6 +269,25 @@ final class AppSettingsStore: ObservableObject {
         }
         // 切回 followMouse 时**保留** pinned 字典不删（remembered 惯例，
         // 同 lastEnabledEdgeAutoHideDelay 的精神：再切回固定档时还记得上次选的屏）。
+    }
+
+    /// Only a genuinely fresh install may arm this; the store's own init never creates the key.
+    func armTaskbarPerDisplaySeedForFreshInstall(lineage: InstallLineage) {
+        guard lineage == .pristine,
+              defaults.object(forKey: Keys.taskbarScreenPerDisplaySeedPending) == nil
+        else { return }
+        defaults.set(true, forKey: Keys.taskbarScreenPerDisplaySeedPending)
+    }
+
+    func applyTaskbarPerDisplaySeed() {
+        setTaskbarScreenPlacement(.allScreensPerDisplay)
+    }
+
+    func consumeTaskbarPerDisplaySeedIfPresent() {
+        guard defaults.object(forKey: Keys.taskbarScreenPerDisplaySeedPending) != nil,
+              defaults.bool(forKey: Keys.taskbarScreenPerDisplaySeedPending)
+        else { return }
+        defaults.set(false, forKey: Keys.taskbarScreenPerDisplaySeedPending)
     }
 
     private static func storedPinnedScreenSelection(_ dict: [String: Any]?) -> PinnedScreenSelection? {
@@ -297,15 +323,24 @@ final class AppSettingsStore: ObservableObject {
         defaults.set(value, forKey: Keys.showShelf)
     }
 
-    /// 全新安装把「最大化窗口避开 Dock 栏」播种为开（owner 2026-09-01）。
+    /// Seeds "lift maximized windows clear of the taskbar" to on for a fresh install (owner 2026-09-01).
     ///
-    /// **只允许 `AppDelegate` 在判定为全新安装时调一次**：判据是 `InstallationRecord`
-    /// 的首装键在本次启动**之前**是否存在——老用户机器上它早就有值，只有全新安装那一次是空的，
-    /// 所以不需要再新建一个播种标记键（也就没有新的数据边界）。⚠️ 调用点必须排在
-    /// `recordFirstLaunchIfNeeded()` **之前**取那个判据，写完再问就永远是「老用户」。
+    /// **Only `AppDelegate` may call this, once.** The verdict is `InstallLineage`: a snapshot of the
+    /// persistent domain taken at the very start of the process, where an empty domain means a fresh
+    /// install. ⚠️ What is load-bearing is *where* that snapshot is taken — `AppDelegate.installLineage`
+    /// must be that type's **first stored property**, because this store and its siblings write defaults
+    /// inside their own inits, so a snapshot taken one step later is guaranteed to be non-empty. This has
+    /// **nothing** to do with the ordering against `recordFirstLaunchIfNeeded()`; that was the old,
+    /// now-retired verdict.
     ///
-    /// 键已存在 = 用户自己拨过（哪怕拨成关），一律尊重，不覆盖。
-    func seedWindowLiftEnabledForFreshInstall() {
+    /// Getting the order wrong fails in the safe direction: a non-empty domain reads as `.priorUse` and
+    /// nothing is seeded, so the feature goes silently dead for fresh installs rather than flipping an
+    /// existing user. That is why there is **no assertion** here — 71 tests construct this type directly,
+    /// and a process-level assert would abort the whole test run on the first one.
+    ///
+    /// An existing key means the user chose, even if they chose off: always respected, never overwritten.
+    func seedWindowLiftEnabledForFreshInstall(lineage: InstallLineage) {
+        guard lineage == .pristine else { return }
         guard defaults.object(forKey: Keys.windowLiftEnabled) == nil else { return }
         setWindowLiftEnabled(true)
     }
@@ -459,6 +494,9 @@ private enum Keys {
     static let taskbarScreenMode = "com.tungsten.edge.taskbarScreen.mode"
     /// 固定屏身份（字典：uuid / name）。切回 followMouse 时保留不删。
     static let taskbarScreenPinned = "com.tungsten.edge.taskbarScreen.pinned"
+    /// A fresh install waiting to first see multiple displays. Missing key = existing user,
+    /// false = already consumed.
+    static let taskbarScreenPerDisplaySeedPending = "com.tungsten.edge.taskbarScreen.perDisplaySeedPending"
     /// ⚠️ 这个键名进了用户磁盘。改名 = 所有已订阅的人重新看到订阅区块。
     static let hasSubscribed = "com.tungsten.edge.hasSubscribed"
     /// ⚠️ 同上：改名 = 所有老用户下次启动被欢迎引导再拦一次。
