@@ -13,11 +13,20 @@ extension PanelCoordinator {
     func subscribeSnapshotWidth() {
         snapshotWidthSubscription = runtime.$snapshot
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                // Defer one run-loop cycle so SwiftUI finishes layout before we read fittingSize
-                DispatchQueue.main.async { [weak self] in
-                    self?.relayout(animated: true)   // layoutPanels 内含抽屉重定位；转正期间 relayout 内部钳住宽度
+            .sink { [weak self] snapshot in
+                guard let self else { return }
+                // `receive(on:)` 这一跳已在快照写入之后，`fittingSize` 会把 SwiftUI 按新快照同步布局一遍，
+                // 不必再多推一轮主队列。卡增减（id 集合变了）照旧走窗口动画；只是标签变了、跟随窗开着时
+                // 不起动画——那期间内容宽度逐帧变，面板由 `labelFollowTick` 逐帧跟，这里量到的只是中间值。
+                let ids = Set(snapshot.orderedWindowIDs)
+                let idsChanged = self.lastSnapshotWindowIDs != ids
+                self.lastSnapshotWindowIDs = ids
+                if idsChanged {
+                    self.relayout(animated: true)   // layoutPanels 内含抽屉重定位
+                } else if !self.isLabelFollowActive {
+                    self.relayout(animated: true)
                 }
+                // 跟随窗开着且只是标签变了：什么都不做，面板由 `labelFollowTick` 按曲线推。
             }
     }
 
@@ -190,7 +199,7 @@ extension PanelCoordinator {
 
     /// 统一布局入口：算齐三个目标 frame、存好（给 drop zone / 开抽屉读），三面板同组动画到目标。
     /// 开屏/切屏/多屏悬停传 animated:false；内容变化、收纳/移回、抽屉尺寸变化传 animated:true。
-    func layoutPanels(contentWidth: CGFloat, on screen: NSScreen, animated: Bool) {
+    func layoutPanels(contentWidth: CGFloat, on screen: NSScreen, animated: Bool, batched: Bool = false) {
         guard let dock = dockPanel, let capsule = capsulePanel else { return }
         let panelScreenCGFrame = Self.toCGRect(screen)
         if let transaction = fullscreenIntentTransaction,
@@ -239,7 +248,7 @@ extension PanelCoordinator {
             lastDrawerTargetFrame = drawerT
             pairs.append((drawer, drawerT))
         }
-        setFrames(pairs, animated: anim)
+        setFrames(pairs, animated: anim, batched: batched)
     }
 
     /// 量当前内容宽度后布局（内容变化的统一入口）。
@@ -252,7 +261,8 @@ extension PanelCoordinator {
         HoverTrace.relayout(measureMs: CACurrentMediaTime() - measureStart,
                             width: measured,
                             changed: measured != lastDesiredWidth,
-                            animated: animated)
+                            animated: animated,
+                            timing: (isLabelFollowActive ? "follow" : "standard") + ":" + String(stripSurfaceID.suffix(4)))
         lastDesiredWidth = measured
         // 跨面板转正进行中 → 任务条宽度钳在拖动前的值（窗口卡溢出/留空而非改变面板宽度，owner 2026-06-22）；
         // 松手/还原解钳后，下一次 relayout 用真实测量值把任务条变到最终长度。
@@ -269,7 +279,10 @@ extension PanelCoordinator {
     ///
     /// 判据用**最终 frame 全等**而不是「宽度没变」：换屏、改档位、边缘隐藏都会在宽度不变的
     /// 情况下真的挪动面板，只比宽度会把它们一起吃掉。
-    func setFrames(_ pairs: [(NSPanel, NSRect)], animated: Bool) {
+    /// `batched`（只有标签跟随的逐帧 tick 传 true）：`display: false`，三个面板的 frame 变化留到这一轮主循环
+    /// 末尾和 SwiftUI 内容一起提交——逐个 `display: true` 会各自立刻冲刷，胶囊、底板、内容三者落在不同帧上
+    /// （屏幕连拍 2026-09-13：变长途中胶囊贴到了底板边上）。
+    func setFrames(_ pairs: [(NSPanel, NSRect)], animated: Bool, batched: Bool = false) {
         // **和上一次的目标比，不和面板的实时 frame 比。**
         // 实时 frame 在动画途中是插值出来的中间值，永远和目标不等——那样这个短路一次都不会命中
         // （实测 0 次）。AGENTS《Menus, Panels, And Screens》早写过同一条：relayout 是目标
@@ -280,12 +293,63 @@ extension PanelCoordinator {
             return
         }
         lastCommittedFrames = targets
-        guard animated else { for (p, f) in pairs { p.setFrame(f, display: true) }; return }
+        guard animated else {
+            for (p, f) in pairs { p.setFrame(f, display: !batched) }
+            if let dock = dockPanel { HoverTrace.width("panel:" + String(stripSurfaceID.suffix(4)), dock.frame.width) }
+            return
+        }
+        animatedFramesUntil = CACurrentMediaTime() + Self.layoutAnimationDuration
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = Self.layoutAnimationDuration
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             for (p, f) in pairs { p.animator().setFrame(f, display: true) }
         }
+    }
+
+    // MARK: - Label width follow
+
+    var isLabelFollowActive: Bool { labelFollowTimer != nil }
+
+    /// 条内标签变长变短了（`DockStripView.onLabelWidthChange`，在 SwiftUI 那一轮更新里同步调用）。
+    /// `starting` = 这次开始动的标签盒的起始宽。跟随窗已开着时只补登记新盒子，起步宽不重量。
+    func beginLabelWidthFollow(starting: [String: CGFloat]) {
+        let now = CACurrentMediaTime()
+        if !isLabelFollowActive {
+            labelFollowRestWidth = lastDesiredWidth
+            labelBoxStart = [:]
+            labelBoxLive = [:]
+        }
+        for (id, from) in starting where labelBoxStart[id] == nil {
+            labelBoxStart[id] = from
+            labelBoxLive[id] = from
+        }
+        labelFollowDeadline = now + LabelWidthAnimation.curve.duration + 0.1
+        guard labelFollowTimer == nil else { return }
+        // 计时器只负责收尾：截止后量一次终值、清状态。逐帧的 frame 由 `labelBoxWidthDidTick` 设。
+        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] t in
+            guard let self else { t.invalidate(); return }
+            guard CACurrentMediaTime() >= self.labelFollowDeadline else { return }
+            t.invalidate()
+            self.labelFollowTimer = nil
+            self.labelBoxStart = [:]
+            self.labelBoxLive = [:]
+            self.relayout(animated: false)   // 收尾量一次终值，吃掉起始宽估算的零点几 pt
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        labelFollowTimer = timer
+    }
+
+    /// `LabelBoxWidthDriver` 每帧上报：只认跟随窗里登记过的盒子；卡增减那条窗口动画还在飞时不抢。
+    /// `batched`：三面板 `display: false`，和本帧的 SwiftUI 内容一起提交。
+    func labelBoxWidthDidTick(chipID: String, width: CGFloat) {
+        guard isLabelFollowActive, labelBoxStart[chipID] != nil, labelBoxLive[chipID] != width else { return }
+        labelBoxLive[chipID] = width
+        guard CACurrentMediaTime() >= animatedFramesUntil, let panel = dockPanel else { return }
+        let delta = labelBoxStart.reduce(CGFloat(0)) { acc, entry in
+            acc + ((labelBoxLive[entry.key] ?? entry.value) - entry.value)
+        }
+        layoutPanels(contentWidth: labelFollowRestWidth + delta,
+                     on: panelCurrentScreen(panel: panel), animated: false, batched: true)
     }
 
     /// 由编排层在 `didChangeScreenParametersNotification` 时转发（它先按屏集合建 / 拆单元，再转给幸存者）。

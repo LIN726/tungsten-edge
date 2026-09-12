@@ -64,6 +64,13 @@ struct DockStripView: View {
     var onWindowTitleTooltipEvent: (WindowTitleTooltipEvent) -> Void = { _ in }
     /// 右键任务条底板 → 弹钨极菜单（`StatusMenuController` 持有那个菜单）。
     var onRequestTaskbarMenu: (NSEvent, NSView) -> Void = { _, _ in }
+    /// 标签变长变短那一轮 SwiftUI 更新里通知面板开跟随窗，附上这次开始动的每个标签盒的**起始宽**
+    /// （`[chipID: 旧标签盒宽]`，pt）；之后每帧的实时宽由 `onLabelBoxWidthTick` 报，面板据此算内容总宽
+    /// （`PanelCoordinator.beginLabelWidthFollow(starting:)`）。默认空实现是正确的省略语义：不挂在面板上
+    /// 的条（拖动载体快照）没有底板要跟。
+    var onLabelWidthChange: ([String: CGFloat]) -> Void = { _ in }
+    /// 标签盒每帧的实时宽度（`LabelBoxWidthDriver` 经环境值上报），转给面板逐帧设 frame。
+    var onLabelBoxWidthTick: (String, CGFloat) -> Void = { _, _ in }
     /// 跨面板拖动权威（拖卡进抽屉 路线 C）：起拖 → beginDrag；读 draggingItem 隐藏原位卡片、
     /// 读 isOverDropZone 在进投放区时停掉条内重排。载体面板/监视器/收尾都在它里面，本视图不碰。
     @EnvironmentObject var dragController: DragController
@@ -89,6 +96,8 @@ struct DockStripView: View {
     /// 弹簧（0.28s）叠在 AppKit easeInEaseOut（0.22s）上，图标相对底板忽前忽后，就是 owner 2026-09-03
     /// 录屏里「没有原生丝滑」的那一下。
     @State private var renderedCollapsed = false
+    /// 上一轮已渲染的标签表：算这次标签变化让内容总宽变了多少（只算真的画出标题的卡，形态 `.multi`）。
+    @State private var renderedLabelTitles: [String: String] = [:]
 
     /// 中转格 frame（"strip" 空间）。**独立上报,不塞进 folderChipFrames**（评审：那个字典专属
     /// 文件夹 chip,后续还喂文件夹重排 hit-test,不能混 sentinel）。喂中转弹窗锚点 + drop 路由。
@@ -182,12 +191,24 @@ struct DockStripView: View {
                                ? .easeInOut(duration: DrawerAnimation.duration)          // 合拢 / 重开：跟面板走
                                : .spring(response: 0.28, dampingFraction: 0.82),         // 让位：签收过的弹簧
                            value: projection.layoutKeys)
-                // 标签变长变短（窗口改标题、同组公共段随开关窗重算）：药丸宽和邻卡位置要和面板
-                // 窗口的 0.22s easeInOut **同曲线同时长**，理由同上面的合拢。`layoutKeys` 有意不含
-                // 标题，所以单独一条；挂在它**外面**——两者同一轮都变时（新卡进来且标签重算）
-                // 里面那条赢，仍按增减卡的曲线走。文字本身的淡入淡出在 `ChipView.titleLabel`。
-                .animation(.easeInOut(duration: DrawerAnimation.duration),
-                           value: projection.labelTitleByChipID)
+                // 标签变长变短的宽度动画在 `ChipView.titleLabel` 的盒子上（`LabelBoxWidthDriver` 逐帧改
+                // 真实布局宽，邻卡随之重排）；这一层只负责通知面板开始逐帧跟随，外加起步探针。
+                // 同一轮更新里让面板起步（理由见 `onLabelWidthChange`）。探针行留着：和面板那侧
+                // `relayout` 的时间戳对着看，差值就是内容与底板起步相差多少（`DOCK_HOVER_TRACE=1`）。
+                .onChange(of: projection.labelTitleByChipID) { newTitles in
+                    HoverTrace.action("labelChange", phase: "swiftui")
+                    let titled = Set(projection.layoutKeys.filter { $0.form == .multi }.map(\.id))
+                    var starting: [String: CGFloat] = [:]
+                    for id in titled {
+                        guard let new = newTitles[id], let old = renderedLabelTitles[id], new != old else { continue }
+                        let from = ChipPillMetrics.labelWidth(title: old, scale: dockScale)
+                        if from != ChipPillMetrics.labelWidth(title: new, scale: dockScale) { starting[id] = from }
+                    }
+                    renderedLabelTitles = newTitles
+                    if !starting.isEmpty { onLabelWidthChange(starting) }
+                }
+                .onAppear { renderedLabelTitles = projection.labelTitleByChipID }
+                .environment(\.labelBoxWidthTick, onLabelBoxWidthTick)
             }
             .clipShape(RoundedRectangle(cornerRadius: taskbarCornerRadius, style: .continuous))
             .compatLeadingScrollAnchor()

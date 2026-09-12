@@ -83,6 +83,30 @@ final class ChipHoverGeometryTests: XCTestCase {
     }
 }
 
+/// 标签变长变短的曲线：条内与面板底板共用同一条贝塞尔，调参字符串解析错了要静默落回默认。
+final class LabelWidthAnimationTests: XCTestCase {
+    func testDefaultCurveIsAValidBezier() {
+        let c = LabelWidthAnimation.defaultCurve
+        XCTAssertGreaterThan(c.duration, 0)
+        XCTAssertTrue((0...1).contains(c.c1x))
+        XCTAssertTrue((0...1).contains(c.c2x))
+    }
+
+    func testParsesTheOverrideString() {
+        XCTAssertEqual(LabelWidthAnimation.parse("300, 0.25, 0.1, 0.25, 1"),
+                       LabelWidthAnimation.Curve(duration: 0.3, c1x: 0.25, c1y: 0.1, c2x: 0.25, c2y: 1))
+    }
+
+    func testRejectsMalformedOverrides() {
+        XCTAssertNil(LabelWidthAnimation.parse(nil))
+        XCTAssertNil(LabelWidthAnimation.parse(""))
+        XCTAssertNil(LabelWidthAnimation.parse("300,0.25,0.1,0.25"))         // 少一项
+        XCTAssertNil(LabelWidthAnimation.parse("0,0.25,0.1,0.25,1"))         // 时长非正
+        XCTAssertNil(LabelWidthAnimation.parse("300,1.5,0.1,0.25,1"))        // 控制点 x 越界
+        XCTAssertNil(LabelWidthAnimation.parse("300,a,0.1,0.25,1"))          // 非数字
+    }
+}
+
 /// 探针改量卡片矩形之后，tooltip 的锚点契约（pill rect）靠这组常量推出来，
 /// 所以推导必须与渲染用的是同一份数值。
 final class ChipPillMetricsTests: XCTestCase {

@@ -205,6 +205,22 @@ final class PanelCoordinator: NSObject {
     /// 正在拖的 strip 卡 bundleID,松手时用它判断有没有收进抽屉。
     var springDragBundleID: String?
     var lastDesiredWidth: CGFloat = 0
+    /// 标签变长变短的「跟随窗」：条内标签盒按 `LabelWidthAnimation` 逐帧真实变宽（`LabelBoxWidthDriver`），
+    /// 每帧把实时宽报进来（`labelBoxWidthDidTick`），面板在同一轮里无动画地把 frame 设过去，和那一帧的
+    /// 内容一起提交。内容总宽 = 起步时量到的宽 + Σ(盒实时宽 − 盒起始宽)。**不能事后量**（量到上一帧、
+    /// 显示又晚一帧，底板稳定落后两帧），**也不能自己按曲线预测**（两套时钟对不齐，±1 帧抖动）——
+    /// 屏幕连拍 2026-09-13 两条路都量过。截止后再量一次终值兜底。
+    var labelFollowTimer: Timer?
+    var labelFollowRestWidth: CGFloat = 0
+    var labelBoxStart: [String: CGFloat] = [:]
+    var labelBoxLive: [String: CGFloat] = [:]
+    var labelFollowDeadline: CFTimeInterval = 0
+    /// 上一份快照的窗口 id 集合：集合变了（卡增减）就算跟随窗开着也走 0.22s 窗口动画；集合没变而跟随窗
+    /// 开着的快照则不量宽（量到的是中间值，会把面板往回拽）。
+    var lastSnapshotWindowIDs: Set<WindowID>?
+    /// 最近一次**带动画**的 `setFrames` 预计结束时刻：跟随窗的逐帧 setFrame 在此之前不抢（否则会把
+    /// 卡增减那条 0.22s 的窗口动画打断成一步到位）。
+    var animatedFramesUntil: CFTimeInterval = 0
     var lastDrawerSize: CGSize = CGSize(width: 210, height: 60)
     /// 目标 frame 驱动布局：每次 layoutPanels 算齐三个目标并存这里。drop zone 命中、开抽屉定位都读**目标**
     /// 而非 live frame——动画中 live frame 是中途值,会和视觉/逻辑短暂不一致（Codex 二审 P2）。

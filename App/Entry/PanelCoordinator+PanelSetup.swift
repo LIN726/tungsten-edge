@@ -47,7 +47,10 @@ extension PanelCoordinator {
             },
             onRequestTaskbarMenu: { [weak self] event, view in
                 self?.onRequestTaskbarMenu?(event, view)
-            }
+            },
+            // 标签变长变短：开一段面板逐帧跟随内容宽度的窗口（见 `beginLabelWidthFollow`）。
+            onLabelWidthChange: { [weak self] starting in self?.beginLabelWidthFollow(starting: starting) },
+            onLabelBoxWidthTick: { [weak self] id, width in self?.labelBoxWidthDidTick(chipID: id, width: width) }
         ).environmentObject(runtime).environmentObject(drawerStore).environmentObject(messagingStore).environmentObject(badgeStore).environmentObject(stripOrderStore).environmentObject(pinnedFolderStore).environmentObject(folderCoverStore).environmentObject(shelfStore).environmentObject(dragController).environmentObject(keptAppStore).environmentObject(runningApplicationStore).environmentObject(appMembershipController).environmentObject(settingsStore).environmentObject(displayTopologyStore))
         hosting.autoresizingMask = [.width, .height]
         // Prevent NSHostingView from adding its own opaque background over the blur

@@ -35,6 +35,36 @@ enum WindowTitleTextMetrics {
 
 }
 
+/// 标签变长变短那条路的曲线，只驱动条内的 `LabelBoxWidthDriver`；面板底板不跑自己的动画，而是在
+/// `PanelCoordinator.beginLabelWidthFollow` 的跟随窗里逐帧量内容宽、直接设 frame（同步由构造保证）。
+///
+/// 默认起步轻、收尾长（owner 2026-09-12 要「柔和」）。`DOCK_LABEL_ANIM="ms,c1x,c1y,c2x,c2y"` 可以不重装
+/// 试别的组，进程启动时读一次；选定后改 `defaultCurve`。跟随窗的时长跟着 `curve.duration` 走。
+enum LabelWidthAnimation {
+    struct Curve: Equatable {
+        let duration: TimeInterval
+        let c1x: Double, c1y: Double, c2x: Double, c2y: Double
+    }
+
+    static let defaultCurve = Curve(duration: 0.38, c1x: 0.3, c1y: 0, c2x: 0.1, c2y: 1)
+    static let curve: Curve = parse(DebugSwitch.labelAnim.value()) ?? defaultCurve
+
+    static var swiftUI: Animation {
+        .timingCurve(curve.c1x, curve.c1y, curve.c2x, curve.c2y, duration: curve.duration)
+    }
+
+
+    /// "ms,c1x,c1y,c2x,c2y" → 曲线；格式不对、时长非正、控制点 x 越界（贝塞尔要求 0…1）→ nil，走默认。
+    static func parse(_ raw: String?) -> Curve? {
+        guard let raw else { return nil }
+        let parts = raw.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard parts.count == 5, let ms = parts[0], let c1x = parts[1], let c1y = parts[2],
+              let c2x = parts[3], let c2y = parts[4], ms > 0,
+              (0...1).contains(c1x), (0...1).contains(c2x) else { return nil }
+        return Curve(duration: ms / 1000, c1x: c1x, c1y: c1y, c2x: c2x, c2y: c2y)
+    }
+}
+
 /// 带标题窗口卡「药丸」的布局常量。**渲染与推导必须共用它**——tooltip 的锚点契约是 pill rect
 /// （见 `PanelGeometry.windowTitleTooltipTargetFrame`），而屏幕坐标探针为了躲开按压缩放改量的是
 /// 整张卡的矩形，pill rect 只能由这些常量推出来。两处各写一份迟早对不上，理由同 `WindowTitleTextMetrics`。
