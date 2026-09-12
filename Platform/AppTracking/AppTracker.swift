@@ -471,6 +471,15 @@ final class AppTracker: ObservableObject {
         var healedSeats: [(cgID: CGWindowID, token: String, episodeID: UUID)] = []
         var releasedSeats: [(seat: WindowEntry, reason: InventorySeatReleasedReason)] = []
         var tearOutCgIDs: Set<CGWindowID> = []
+        // 并入标签释放的座位 → 归属座位（成员学习，Pass A 结束后统一回写，owner 可能还没落座）。
+        var mergedIntoOwner: [(cgID: CGWindowID, ownerActiveCgID: CGWindowID)] = []
+        // TabMergeDecision 的兄弟视角：本轮 AX 在场的老座位，帧取本轮 AX 快照（座位里的可能过时）。
+        func axPresentSeatsForMerge(excluding candidate: CGWindowID) -> [TabMergeDecision.AXPresentSeat] {
+            app.windowOrder.compactMap { id in
+                guard id != candidate, let snap = eligibleByCgID[id] else { return nil }
+                return TabMergeDecision.AXPresentSeat(activeCgID: id, bounds: snap.bounds, isMinimized: snap.isMinimized)
+            }
+        }
 
         // Pass A：每个老座位尝试延续
         for cgID in app.windowOrder {
@@ -611,10 +620,25 @@ final class AppTracker: ObservableObject {
                             place(seat)                   // 真最小化(Safari 离开 AX)/ 应用隐藏 → 保座位
                         }
                     } else {
-                        seat.isFocused = false
-                        // AX 成功不代表窗口清单完整。只要 CG 仍确认当前 activeCgID 存在且没有
-                        // destroy tombstone，就保留原座位；AX 缺席永远不能自行证明窗口已关闭。
-                        place(seat)
+                        // 未最小化、app 未隐藏却离开 AX：先问是不是被合并进了别的窗成后台标签
+                        // （TabMergeDecision：CG 说不在屏上 + CG bounds 与某 AX 在场兄弟座位同 frame）。
+                        // 是 → 释放，否则一扇窗两张卡、之后每切一次标签再裂一张。
+                        let mergeVerdict = TabMergeDecision.verdict(
+                            candidateIsOnScreen: onScreenCGIDs.contains(X),
+                            candidateCGBounds: cgSnapshot.boundsByWindowID[X],
+                            candidateSeatBounds: seat.bounds,
+                            axPresentSeats: axPresentSeatsForMerge(excluding: X),
+                            frameKey: fk
+                        )
+                        if case .release(let owner) = mergeVerdict {
+                            releasedSeats.append((seat, .mergedIntoTabbedWindow))
+                            if let owner { mergedIntoOwner.append((cgID: X, ownerActiveCgID: owner)) }
+                        } else {
+                            seat.isFocused = false
+                            // AX 成功不代表窗口清单完整。只要 CG 仍确认当前 activeCgID 存在且没有
+                            // destroy tombstone，就保留原座位；AX 缺席永远不能自行证明窗口已关闭。
+                            place(seat)
+                        }
                     }
                 } else {
                     // 连 CG 都没了 → 真关闭，丢弃。
@@ -633,6 +657,11 @@ final class AppTracker: ObservableObject {
         // → 尺寸兜底(同宽高+屏幕外,救"窗口移动后后台标签 AX 坐标过时")。折叠且归属唯一时把
         // 候选记入座位历史(成员学习),下次折叠不再依赖几何。
         // 非 min 的同 frame 窗口是"两个独立窗口重叠"的合法场景,照常各自建座位。
+        // 并入标签的成员学习：归属座位这轮一定在 Pass A 落座（它 AX 在场），在 Pass B 之前回写，
+        // 同一轮若紧接着最小化爆发也能按成员折叠。
+        for merged in mergedIntoOwner {
+            newByID[merged.ownerActiveCgID]?.formerCgIDs.insert(merged.cgID)
+        }
         var placedForFold: [TabFoldDecision.PlacedSeat] = newOrder.compactMap { id in
             guard let e = newByID[id] else { return nil }
             return TabFoldDecision.PlacedSeat(activeCgID: e.cgWindowID, bounds: e.bounds,
