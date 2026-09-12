@@ -182,6 +182,12 @@ struct DockStripView: View {
                                ? .easeInOut(duration: DrawerAnimation.duration)          // 合拢 / 重开：跟面板走
                                : .spring(response: 0.28, dampingFraction: 0.82),         // 让位：签收过的弹簧
                            value: projection.layoutKeys)
+                // 标签变长变短（窗口改标题、同组公共段随开关窗重算）：药丸宽和邻卡位置要和面板
+                // 窗口的 0.22s easeInOut **同曲线同时长**，理由同上面的合拢。`layoutKeys` 有意不含
+                // 标题，所以单独一条；挂在它**外面**——两者同一轮都变时（新卡进来且标签重算）
+                // 里面那条赢，仍按增减卡的曲线走。文字本身的淡入淡出在 `ChipView.titleLabel`。
+                .animation(.easeInOut(duration: DrawerAnimation.duration),
+                           value: projection.labelTitleByChipID)
             }
             .clipShape(RoundedRectangle(cornerRadius: taskbarCornerRadius, style: .continuous))
             .compatLeadingScrollAnchor()

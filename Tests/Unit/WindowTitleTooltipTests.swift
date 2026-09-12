@@ -95,6 +95,25 @@ final class ChipPillMetricsTests: XCTestCase {
         XCTAssertEqual(ChipPillMetrics.width(title: title, scale: scale), expected, accuracy: 0.001)
     }
 
+    /// 标签盒宽度是渲染与推导的公共来源：向上取整的受限标题宽，`width` 只在它外面加常量。
+    func testLabelWidthIsTheCeiledCappedIntrinsicWidth() {
+        let title = "psd-文件"
+        let long = String(repeating: "very-long-window-title-", count: 20)
+        for scale in [CGFloat(0.85), 1, 1.15, 1.3] {
+            let intrinsic = WindowTitleTextMetrics.intrinsicWidth(of: title, scale: scale)
+            XCTAssertEqual(ChipPillMetrics.labelWidth(title: title, scale: scale),
+                           ceil(min(intrinsic, WindowTitleTextMetrics.maximumWidth(for: scale))), accuracy: 0.001)
+            XCTAssertEqual(ChipPillMetrics.labelWidth(title: long, scale: scale),
+                           ceil(WindowTitleTextMetrics.maximumWidth(for: scale)), accuracy: 0.001)
+            XCTAssertFalse(ChipPillMetrics.labelTruncates(title: title, scale: scale))
+            XCTAssertTrue(ChipPillMetrics.labelTruncates(title: long, scale: scale))
+            XCTAssertEqual(ChipPillMetrics.width(title: long, scale: scale)
+                               - ChipPillMetrics.width(title: title, scale: scale),
+                           ChipPillMetrics.labelWidth(title: long, scale: scale)
+                               - ChipPillMetrics.labelWidth(title: title, scale: scale), accuracy: 0.001)
+        }
+    }
+
     func testWidthIsCappedByTheTitleMaximum() {
         let long = String(repeating: "very-long-window-title-", count: 20)
         let scale: CGFloat = 1

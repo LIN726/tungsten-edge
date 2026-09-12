@@ -251,11 +251,7 @@ struct ChipView: View {
                         ChipBadgeView(text: badgeText, scale: scale * ChipPillMetrics.titledCardBadgeScale)
                     }
                 }
-            Text(capturedDisplayTitle)
-                .font(.system(size: max(10, 12 * scale), weight: .medium, design: .rounded))
-                .foregroundStyle(titleColor)
-                .lineLimit(1)
-                .frame(maxWidth: WindowTitleTextMetrics.maximumWidth(for: scale), alignment: .leading)
+            titleLabel(capturedDisplayTitle, color: titleColor)
         }
         .padding(.horizontal, ChipPillMetrics.horizontalPadding * scale)
         .frame(height: metrics.pillHeight)
@@ -296,6 +292,44 @@ struct ChipView: View {
         // 标签在 140pt 处截断，而这张卡上的标题还去掉了应用名后缀——完整标题只剩这一个出口。
         // （悬停气泡不算：它显示的是应用名，而且新装用户默认是 `.quiet`、根本没有气泡。）
         .help(capturedFullTitle)
+    }
+
+    // MARK: - Title Label
+
+    /// 标签文字换场的淡出淡入时长。**必须短于**任务条的宽度动画（`DrawerAnimation.duration`）：
+    /// 字先换完、盒子还在收尾，看到的是「新字在盒子里坐稳」；反过来字比盒子晚就成了两段动作。
+    private static let labelCrossfadeDuration: TimeInterval = 0.15
+
+    /// 带标题卡上的那行字。
+    ///
+    /// **宽度是显式给的，文字是按身份换的**——标题从短变长（或反过来）时，这张卡上一共有
+    /// 三样东西会变：字、药丸宽、右边邻卡的位置；面板窗口的玻璃底板则由 `PanelCoordinator`
+    /// 另开一条 0.22s 的 AppKit 动画去追。让 `Text` 自己撑宽的写法下前三样一步到位、只有
+    /// 底板在滑，就是 owner 2026-09-12 说的「生硬、突兀」。这里把三件事拆开：
+    /// - 外层盒子 `.frame(width:)` 走任务条那条与底板同曲线同时长的布局动画
+    ///   （`DockStripView` 上按 `labelTitleByChipID` 触发的那条），药丸和邻卡跟着它一起滑；
+    /// - 文字按 `.id(title)` 换身份、`.opacity` 过渡——旧字淡出新字淡入，不瞬换；
+    /// - 每个 `Text` 只认自己那一份宽度（超上限才定宽截断），**不在盒子的中间宽度上重排**，
+    ///   否则动画途中每一帧都在重算省略号、末尾抖动。
+    /// `.clipped()` 只裁到盒子的当前宽度：变长时新字从图标那侧逐帧露出来，变短时旧字被收进去。
+    private func titleLabel(_ title: String, color: Color) -> some View {
+        let boxWidth = ChipPillMetrics.labelWidth(title: title, scale: scale)
+        let truncates = ChipPillMetrics.labelTruncates(title: title, scale: scale)
+        return ZStack(alignment: .leading) {
+            Text(title)
+                .font(.system(size: max(10, 12 * scale), weight: .medium, design: .rounded))
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .frame(width: truncates ? WindowTitleTextMetrics.maximumWidth(for: scale) : nil,
+                       alignment: .leading)
+                .fixedSize(horizontal: !truncates, vertical: false)
+                .id(title)
+                .transition(.opacity)
+        }
+        // 只包住文字的换场；盒子的 `.frame(width:)` 在这层**之外**，拿的是任务条那条布局动画。
+        .animation(.easeInOut(duration: Self.labelCrossfadeDuration), value: title)
+        .frame(width: boxWidth, alignment: .leading)
+        .clipped()
     }
 
     // MARK: - Shared Icon
