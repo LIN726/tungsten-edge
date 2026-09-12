@@ -1402,6 +1402,7 @@ final class AppTracker: ObservableObject {
             subrole: snap.subrole,
             bounds: snap.bounds,
             alpha: alpha,
+            isMinimized: snap.isMinimized,
             application: application
         )
     }

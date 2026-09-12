@@ -142,7 +142,8 @@ struct FinderWindowContentsReader {
                         title: snapshot.title,
                         role: snapshot.role,
                         subrole: snapshot.subrole,
-                        bounds: snapshot.bounds
+                        bounds: snapshot.bounds,
+                        isMinimized: snapshot.isMinimized
                       ) else {
                     return nil
                 }

@@ -142,6 +142,7 @@ struct AppTrackerWindowEligibility {
         subrole: String?,
         bounds: CGRect?,
         alpha: Double?,
+        isMinimized: Bool,
         application: Application
     ) -> Bool {
         let candidate = DockWindowEligibilityPolicy.Candidate(
@@ -165,7 +166,8 @@ struct AppTrackerWindowEligibility {
                 title: title,
                 role: role,
                 subrole: subrole,
-                bounds: bounds
+                bounds: bounds,
+                isMinimized: isMinimized
             )
         }
 

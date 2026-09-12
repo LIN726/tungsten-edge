@@ -13,13 +13,14 @@ enum FinderWindowRules {
         title: String?,
         role: String?,
         subrole: String?,
-        bounds: CGRect?
+        bounds: CGRect?,
+        isMinimized: Bool
     ) -> Bool {
         guard AXTaskbarWindowRules.isMainWindow(
             role: role,
             subrole: subrole,
             bounds: bounds
-        ) else {
+        ) || isMinimizedMainWindow(role: role, subrole: subrole, isMinimized: isMinimized) else {
             return false
         }
 
@@ -33,6 +34,18 @@ enum FinderWindowRules {
         }
 
         return true
+    }
+
+    /// Finder reports every minimized window as `AXDialog` (folder windows, every tab of a
+    /// minimized tab group, Get Info, the copy-progress window alike) and flips it back to
+    /// `AXStandardWindow` on restore. The generic rule rejects dialogs, so a window minimized
+    /// before launch would never seat. Admit the pair `min=true + AXDialog` for Finder only;
+    /// every Finder window measured is a standard window while visible, so this admits nothing
+    /// that would not already carry a card while visible. Title and frame checks still apply.
+    private static func isMinimizedMainWindow(role: String?, subrole: String?, isMinimized: Bool) -> Bool {
+        isMinimized
+            && role == (kAXWindowRole as String)
+            && subrole == (kAXDialogSubrole as String)
     }
 
     static func normalizedTitle(_ title: String?) -> String? {
