@@ -170,6 +170,8 @@ Two more settings under **System Settings → Desktop & Dock** pair well with a 
 
 Issues and discussions are answered in English and Chinese alike — write in whichever you prefer.
 
+**Discord** — [Join the server](https://discord.gg/QnKjUMVzdC) for announcements and support in English (Chinese is welcome too).
+
 **WeChat Group** *(for Chinese-speaking users)*
 
 <img src="assets/wechat-group.png" alt="Tungsten Edge WeChat group QR code" width="280" />

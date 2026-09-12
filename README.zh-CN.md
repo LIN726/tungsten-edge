@@ -156,6 +156,8 @@ brew install --cask moonbai-studio/tungsten-edge/tungsten-edge
 
 **Issues 与 Discussions 的分工** —— [Issues](https://github.com/moonbai-studio/tungsten-edge/issues) 只收 bug 报告和明确的功能请求。用法问题、安装求助和其他交流，请到 [Discussions](https://github.com/moonbai-studio/tungsten-edge/discussions)。
 
+**Discord**（以英文为主，中文也可以问）—— [加入](https://discord.gg/QnKjUMVzdC)
+
 **微信交流群**
 
 <img src="assets/wechat-group.png" alt="钨极 Dock 微信交流群二维码" width="280" />
