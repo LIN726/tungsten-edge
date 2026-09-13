@@ -23,6 +23,20 @@ final class FrontmostWindowGeometryObserver {
     private var refreshTask: Task<Void, Never>?
     private var needsTrailingRefresh = false
 
+    /// AXObserverAddNotification / RemoveNotification are cross-process mach round-trips: they block
+    /// the caller until the *observed* app answers. Registration used to run on the main thread, and
+    /// on an app switch (restoring a minimized window activates its app) it hit the app while it was
+    /// still busy finishing the un-minimize — parking the main thread ~300–400ms, so a chip's
+    /// press-release could not paint until the window's flight ended (owner 2026-09-13). Only the
+    /// blocking add/remove IPC moves here; observer creation, the run-loop source, and all `@MainActor`
+    /// bookkeeping stay on main. Serial so per-observer registration order is preserved (a remove of
+    /// the old focused element always precedes the add of the new one). Callbacks are unaffected — they
+    /// still fire on the main run loop via the observer's run-loop source. A late registration is
+    /// covered by window-lift's activation scan + 1s idle fallback.
+    nonisolated private static let registrationQueue = DispatchQueue(
+        label: "com.caye.macosdockcc.v2.frontmost-ax-registration"
+    )
+
     deinit {
         MainActor.assumeIsolated { stop() }
     }
@@ -49,23 +63,27 @@ final class FrontmostWindowGeometryObserver {
         let app = AXUIElementCreateApplication(pid)
         _ = AXUIElementSetMessagingTimeout(app, 0.1)
         let refcon = Unmanaged.passUnretained(self).toOpaque()
-        AXObserverAddNotification(
-            newObserver,
-            app,
-            kAXFocusedWindowChangedNotification as CFString,
-            refcon
-        )
-        AXObserverAddNotification(
-            newObserver,
-            app,
-            kAXWindowCreatedNotification as CFString,
-            refcon
-        )
+        // App-level registration IPC off the main thread (see `registrationQueue`). The run-loop
+        // source is added on main *first* so callbacks are wired before the notifications land.
         CFRunLoopAddSource(
             CFRunLoopGetMain(),
             AXObserverGetRunLoopSource(newObserver),
             .commonModes
         )
+        Self.registrationQueue.async {
+            AXObserverAddNotification(
+                newObserver,
+                app,
+                kAXFocusedWindowChangedNotification as CFString,
+                refcon
+            )
+            AXObserverAddNotification(
+                newObserver,
+                app,
+                kAXWindowCreatedNotification as CFString,
+                refcon
+            )
+        }
         observer = newObserver
         appElement = app
         requestFocusedRefresh()
@@ -82,8 +100,21 @@ final class FrontmostWindowGeometryObserver {
     }
 
     private func stopObservation() {
+        // Dropping the AXObserver removes *every* notification registered on it — the
+        // app-level ones (focused-window-changed / window-created) and the focused-element
+        // ones (moved / resized / destroyed) alike — so there is no need to first call the
+        // synchronous per-element AXObserverRemoveNotification here.
+        //
+        // That explicit teardown is a cross-process mach_msg to the element of the *previous*
+        // frontmost app. During an app switch — exactly what restoring a minimized window
+        // triggers (NSWorkspace.didActivateApplication → activate(pid:) → stopObservation) —
+        // the previous app is busy and the call parks the main thread ~300–400ms. Long enough
+        // that a chip's press-release animation cannot paint until the un-minimize flight ends,
+        // which reads as "the button only springs back once the window has flown out"
+        // (owner 2026-09-13, only on restore-from-minimized, never on minimize). The app-level
+        // notifications were already relying on observer-drop cleanup; the focused element now
+        // does the same. Callers that keep the observer alive still use unregisterFocusedElement.
         if let observer {
-            unregisterFocusedElement(observer: observer)
             CFRunLoopRemoveSource(
                 CFRunLoopGetMain(),
                 AXObserverGetRunLoopSource(observer),
@@ -151,24 +182,27 @@ final class FrontmostWindowGeometryObserver {
 
         unregisterFocusedElement(observer: observer)
         let refcon = Unmanaged.passUnretained(self).toOpaque()
-        AXObserverAddNotification(
-            observer,
-            element,
-            kAXWindowMovedNotification as CFString,
-            refcon
-        )
-        AXObserverAddNotification(
-            observer,
-            element,
-            kAXWindowResizedNotification as CFString,
-            refcon
-        )
-        AXObserverAddNotification(
-            observer,
-            element,
-            kAXUIElementDestroyedNotification as CFString,
-            refcon
-        )
+        // Element-level registration IPC off the main thread (see `registrationQueue`).
+        Self.registrationQueue.async {
+            AXObserverAddNotification(
+                observer,
+                element,
+                kAXWindowMovedNotification as CFString,
+                refcon
+            )
+            AXObserverAddNotification(
+                observer,
+                element,
+                kAXWindowResizedNotification as CFString,
+                refcon
+            )
+            AXObserverAddNotification(
+                observer,
+                element,
+                kAXUIElementDestroyedNotification as CFString,
+                refcon
+            )
+        }
         focusedElement = element
     }
 
@@ -177,21 +211,26 @@ final class FrontmostWindowGeometryObserver {
             self.focusedElement = nil
             return
         }
-        AXObserverRemoveNotification(
-            observer,
-            focusedElement,
-            kAXWindowMovedNotification as CFString
-        )
-        AXObserverRemoveNotification(
-            observer,
-            focusedElement,
-            kAXWindowResizedNotification as CFString
-        )
-        AXObserverRemoveNotification(
-            observer,
-            focusedElement,
-            kAXUIElementDestroyedNotification as CFString
-        )
+        // De-registration IPC off the main thread (see `registrationQueue`); capture the element by
+        // value so the queued work removes the right one even after `focusedElement` is reassigned.
+        let element = focusedElement
+        Self.registrationQueue.async {
+            AXObserverRemoveNotification(
+                observer,
+                element,
+                kAXWindowMovedNotification as CFString
+            )
+            AXObserverRemoveNotification(
+                observer,
+                element,
+                kAXWindowResizedNotification as CFString
+            )
+            AXObserverRemoveNotification(
+                observer,
+                element,
+                kAXUIElementDestroyedNotification as CFString
+            )
+        }
         self.focusedElement = nil
     }
 

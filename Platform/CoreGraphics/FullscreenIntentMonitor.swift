@@ -533,6 +533,16 @@ final class FullscreenIntentMonitor {
 
     private var workspaceActivationObserver: NSObjectProtocol?
     private var axObserver: AXObserver?
+    /// AXObserver add/remove notification calls are cross-process mach round-trips that block until the
+    /// observed app answers. Registering on the main thread on an app switch (restoring a minimized
+    /// window activates its app) hit the app while it was still finishing the un-minimize and parked
+    /// the main thread ~200ms, delaying the taskbar's own rendering (owner 2026-09-13; this monitor was
+    /// the second offender after `FrontmostWindowGeometryObserver`). Only the blocking IPC moves here;
+    /// observer creation, the run-loop source, and all `@MainActor` bookkeeping stay on main. Serial so
+    /// per-observer registration order is preserved. Callbacks still fire on the main run loop.
+    nonisolated private static let axRegistrationQueue = DispatchQueue(
+        label: "com.caye.macosdockcc.v2.fullscreen-intent-ax-registration"
+    )
     private var appElement: AXUIElement?
     private var focusedElement: AXUIElement?
     private var focusedWindowID: CGWindowID?
@@ -759,17 +769,23 @@ final class FullscreenIntentMonitor {
         let app = AXUIElementCreateApplication(pid)
         _ = AXUIElementSetMessagingTimeout(app, 0.1)
         let refcon = Unmanaged.passUnretained(self).toOpaque()
-        AXObserverAddNotification(observer, app, kAXFocusedWindowChangedNotification as CFString, refcon)
-        AXObserverAddNotification(observer, app, kAXWindowCreatedNotification as CFString, refcon)
+        // Run-loop source on main first (wires callbacks); registration IPC off main (see axRegistrationQueue).
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+        Self.axRegistrationQueue.async {
+            AXObserverAddNotification(observer, app, kAXFocusedWindowChangedNotification as CFString, refcon)
+            AXObserverAddNotification(observer, app, kAXWindowCreatedNotification as CFString, refcon)
+        }
         axObserver = observer
         appElement = app
         refreshCache()
     }
 
     private func stopAXObservation() {
+        // Dropping the AXObserver removes every notification on it (app-level and focused-element alike),
+        // so the synchronous per-element AXObserverRemoveNotification is unnecessary here — and on an app
+        // switch it was a main-thread block against the previous, busy app. Kept-observer callers still
+        // use unregisterFocusedElement (now itself off main).
         if let observer = axObserver {
-            unregisterFocusedElement(observer: observer)
             CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
         }
         axObserver = nil
@@ -859,9 +875,11 @@ final class FullscreenIntentMonitor {
         if focusedWindowID == windowID { return }
         unregisterFocusedElement(observer: observer)
         let refcon = Unmanaged.passUnretained(self).toOpaque()
-        AXObserverAddNotification(observer, element, kAXWindowMovedNotification as CFString, refcon)
-        AXObserverAddNotification(observer, element, kAXWindowResizedNotification as CFString, refcon)
-        AXObserverAddNotification(observer, element, kAXUIElementDestroyedNotification as CFString, refcon)
+        Self.axRegistrationQueue.async {
+            AXObserverAddNotification(observer, element, kAXWindowMovedNotification as CFString, refcon)
+            AXObserverAddNotification(observer, element, kAXWindowResizedNotification as CFString, refcon)
+            AXObserverAddNotification(observer, element, kAXUIElementDestroyedNotification as CFString, refcon)
+        }
         focusedElement = element
         focusedWindowID = windowID
     }
@@ -872,9 +890,11 @@ final class FullscreenIntentMonitor {
             focusedWindowID = nil
             return
         }
-        AXObserverRemoveNotification(observer, element, kAXWindowMovedNotification as CFString)
-        AXObserverRemoveNotification(observer, element, kAXWindowResizedNotification as CFString)
-        AXObserverRemoveNotification(observer, element, kAXUIElementDestroyedNotification as CFString)
+        Self.axRegistrationQueue.async {
+            AXObserverRemoveNotification(observer, element, kAXWindowMovedNotification as CFString)
+            AXObserverRemoveNotification(observer, element, kAXWindowResizedNotification as CFString)
+            AXObserverRemoveNotification(observer, element, kAXUIElementDestroyedNotification as CFString)
+        }
         focusedElement = nil
         focusedWindowID = nil
     }
