@@ -335,8 +335,8 @@ struct ChipView: View {
     /// 标签文字换场：旧字**先**快速淡出，新字**随后**从图标那侧滑进来淡入——两段错开，不同时叠着
     /// （同时淡入淡出时两行长短不同的字叠在一起，词头有一瞬双影）。总长必须短于盒子的宽度动画
     /// （`LabelWidthAnimation.curve.duration`）：字先坐稳、盒子还在收尾；反过来就成了两段动作。
-    private static let labelRemoval: Animation = .easeOut(duration: 0.12)
-    private static let labelInsertion: Animation = .easeOut(duration: 0.26).delay(0.10)
+    private static let labelRemoval: Animation = .easeOut(duration: 0.16)
+    private static let labelInsertion: Animation = .easeOut(duration: 0.34).delay(0.14)
     /// 新字起步时相对终点的位移（未缩放），朝图标那侧。
     private static let labelInsertionOffset: CGFloat = 3
 

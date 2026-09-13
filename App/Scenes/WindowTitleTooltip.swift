@@ -46,7 +46,7 @@ enum LabelWidthAnimation {
         let c1x: Double, c1y: Double, c2x: Double, c2y: Double
     }
 
-    static let defaultCurve = Curve(duration: 0.44, c1x: 0.5, c1y: 0, c2x: 0.15, c2y: 1)   // owner 2026-09-13：起点再缓、再柔
+    static let defaultCurve = Curve(duration: 0.60, c1x: 0.5, c1y: 0, c2x: 0.15, c2y: 1)   // owner 2026-09-13：起点缓、整体长
     static let curve: Curve = parse(DebugSwitch.labelAnim.value()) ?? defaultCurve
 
     static var swiftUI: Animation {
