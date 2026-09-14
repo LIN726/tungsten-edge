@@ -81,14 +81,11 @@ macOS suppresses key events from global event taps while Secure Input is active,
 ### Option 2 — Homebrew (for technical users)
 
 ```bash
-brew install --cask moonbai-studio/tungsten-edge/tungsten-edge
+brew install --cask tungsten-edge
 ```
 
-> One command is enough — Homebrew taps the repository, trusts the cask and installs it.
-> If you would rather use the short token `brew install --cask tungsten-edge` later, run
-> `brew tap moonbai-studio/tungsten-edge` and `brew trust moonbai-studio/tungsten-edge` first:
-> without the tap name on the command line, the short token fails with
-> `Refusing to load cask ... from untrusted tap`.
+> Tungsten Edge is in the official Homebrew cask registry. The older command
+> `brew install --cask moonbai-studio/tungsten-edge/tungsten-edge` still works and installs the same official cask.
 
 ## Grant Accessibility permission
 
@@ -181,7 +178,7 @@ The QR code is updated weekly. If it has expired, please leave a message in [Iss
 
 Tungsten Edge recognizes and thanks the [LINUX DO](https://linux.do/) community for providing a place for discussion and feedback.
 
-If Tungsten Edge is useful to you, a GitHub star helps more than it looks: at **225 stars** the project qualifies for the official Homebrew cask registry — after which `brew install --cask tungsten-edge` works for everyone, with no repository name to type.
+If Tungsten Edge is useful to you, a GitHub star still helps. Thanks to everyone who already starred: your stars got Tungsten Edge into the official Homebrew cask registry, so it now installs with `brew install --cask tungsten-edge`, no repository name to type.
 
 ## Pricing
 

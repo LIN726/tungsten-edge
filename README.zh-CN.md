@@ -80,13 +80,11 @@ macOS 在密码框等场景启用 Secure Input 时，不会把键盘事件交给
 ### 方式二：Homebrew（技术用户）
 
 ```bash
-brew install --cask moonbai-studio/tungsten-edge/tungsten-edge
+brew install --cask tungsten-edge
 ```
 
-> 一条就够——Homebrew 会自动添加 tap、把这个 cask 记入信任表，然后安装。
-> 想以后用短名 `brew install --cask tungsten-edge`，先运行 `brew tap moonbai-studio/tungsten-edge`
-> 和 `brew trust moonbai-studio/tungsten-edge`：命令行里不带 tap 名时，短名会报
-> `Refusing to load cask ... from untrusted tap`。
+> 钨极已进入 Homebrew 官方 cask 源。以前的写法
+> `brew install --cask moonbai-studio/tungsten-edge/tungsten-edge` 仍然能用，装的也是官方这份。
 
 ## 开启辅助功能权限
 
@@ -167,7 +165,7 @@ brew install --cask moonbai-studio/tungsten-edge/tungsten-edge
 
 钨极认可并感谢 [LINUX DO](https://linux.do/) 社区提供的交流与反馈。
 
-如果钨极对你有用，点一颗 GitHub Star 比看起来更有用：到 **225 星**，钨极就够格进入 Homebrew 官方 cask 源——此后所有人只需 `brew install --cask tungsten-edge`，不用再写仓库全名。
+如果钨极对你有用，点一颗 GitHub Star 仍然很有帮助。谢谢已经点过的朋友：靠大家的 Star，钨极进了 Homebrew 官方 cask 源，现在 `brew install --cask tungsten-edge` 就能装，不用再写仓库全名。
 
 ## 价格
 
