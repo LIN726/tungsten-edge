@@ -199,14 +199,15 @@ extension DockStripView {
             if p.source == .folder { return StripEntry.pinnedFolder(path: p.id).id }
             return Self.stripEntryID(for: p)
         }()
-        var zones = [messaging, folderEntries, liveWithGhost]
+        var zones = [messaging, folderEntries, liveWithGhost, settingsStore.showTrash ? [.trash] : []]
             .map { zone in zone.filter { $0.id != collapsedEntryID } }
             .filter { !$0.isEmpty }
         var entries: [StripEntry] = []
         if !zones.isEmpty {
             entries = zones.removeFirst()
             for (index, zone) in zones.enumerated() {
-                entries.append(.divider(id: "zone-divider-\(index)"))
+                let dividerID = zone.first?.id == "trash" ? "zone-divider-trash" : "zone-divider-\(index)"
+                entries.append(.divider(id: dividerID))
                 entries += zone
             }
         }

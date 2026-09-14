@@ -85,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var messagingAutoRegisterSubscription: AnyCancellable?
     private var badgeContextSubscription: AnyCancellable?
     private var windowLiftSettingSubscription: AnyCancellable?
+    private var trashSettingSubscription: AnyCancellable?
     /// 全局反转鼠标滚轮。active tap 需要辅助功能授权，所以挂在任务条运行期
     ///（startTaskbarRuntime 建、suspend/终止拆），与全屏 tap 同一生命周期语义。
     private var scrollReverserMonitor: ScrollReverserMonitor?
@@ -278,6 +279,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        trashSettingSubscription = nil
+        TrashStateStore.shared.stop()
         edgeToggleHotKey?.stop()
         scrollReverserMonitor?.stop()
         scrollReverserMonitor = nil
@@ -583,6 +586,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         // 最常用文件的计数账本：目录监视 + 激活重采样都挂在任务条运行期。
         DocumentUsageStore.shared.start()
+        TrashStateStore.shared.setEnabled(settingsStore.showTrash)
+        TrashStateStore.shared.start()
+        trashSettingSubscription = settingsStore.$showTrash
+            .removeDuplicates()
+            .sink { enabled in TrashStateStore.shared.setEnabled(enabled) }
         // 反转滚轮同款接线。sink 用闭包参数里的新值，不回读 store（@Published 在赋值前发布）。
         applyScrollReverser(enabled: settingsStore.scrollReverserEnabled)
         scrollReverserSettingSubscription = settingsStore.$scrollReverserEnabled
@@ -782,6 +790,8 @@ extension AppDelegate: PermissionEffectHandler {
     }
 
     func suspendPanelsAndStores() {
+        trashSettingSubscription = nil
+        TrashStateStore.shared.stop()
         // 设置窗口也要一起收：权限一丢任务条整条被拆掉，留着一扇改任务条外观的窗
         // 既没有意义，也会挡住紧接着弹出的恢复引导。
         settingsWindowController.close()

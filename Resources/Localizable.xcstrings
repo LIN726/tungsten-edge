@@ -1,6 +1,23 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        }
+      }
+    },
     "Single-display mode": {
       "comment": "Dock 栏显示位置子菜单 · 第一组标题（悬停底边切换 / 固定到某屏）",
       "localizations": {
@@ -429,6 +446,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Apply “%@” (the Dock will restart)"
+          }
+        }
+      }
+    },
+    "Are you sure you want to permanently erase the items in the Trash?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you sure you want to permanently erase the items in the Trash?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确定要永久抹掉废纸篓中的项目吗？"
           }
         }
       }
@@ -1186,6 +1220,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Email or WeChat ID (optional)"
+          }
+        }
+      }
+    },
+    "Empty Trash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empty Trash"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清倒废纸篓"
+          }
+        }
+      }
+    },
+    "Empty Trash…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empty Trash…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清倒废纸篓…"
           }
         }
       }
@@ -2241,6 +2309,23 @@
         }
       }
     },
+    "Open Trash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Trash"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开废纸篓"
+          }
+        }
+      }
+    },
     "Open With": {
       "localizations": {
         "zh-Hans": {
@@ -3025,6 +3110,23 @@
         }
       }
     },
+    "Show Trash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Trash"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示废纸篓"
+          }
+        }
+      }
+    },
     "Show app name on hover": {
       "localizations": {
         "zh-Hans": {
@@ -3701,6 +3803,23 @@
         }
       }
     },
+    "Trash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trash"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "废纸篓"
+          }
+        }
+      }
+    },
     "Tungsten Edge": {
       "comment": "钨极组的分组标题（热键未注册时）。中文界面带品牌后缀「钨极」，英文只用产品名。",
       "localizations": {
@@ -4097,6 +4216,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "You can attach up to 3 files. Remove one first."
+          }
+        }
+      }
+    },
+    "You can’t undo this action.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can’t undo this action."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此操作无法撤销。"
           }
         }
       }

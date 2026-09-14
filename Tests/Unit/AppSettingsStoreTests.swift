@@ -3,6 +3,20 @@ import XCTest
 
 @MainActor
 final class AppSettingsStoreTests: XCTestCase {
+    func testTrashDefaultsIgnoreLegacyKeyAndPersistIndependently() {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: "com.tungsten.edge.trash.visible")
+        let store = AppSettingsStore(defaults: defaults)
+        XCTAssertTrue(store.showTrash)
+        store.setShowTrash(false)
+        XCTAssertTrue(store.showShelf)
+        XCTAssertFalse(AppSettingsStore(defaults: defaults).showTrash)
+        store.setShowShelf(false)
+        store.setShowTrash(true)
+        let reloaded = AppSettingsStore(defaults: defaults)
+        XCTAssertTrue(reloaded.showTrash)
+        XCTAssertFalse(reloaded.showShelf)
+    }
     /// 全新安装：钨极自己那条**默认常驻**（owner 2026-09-01），系统 Dock 的镜像种子仍是 1.0。
     func testFreshInstallDefaultsToAlwaysVisibleForTheTaskbar() {
         let defaults = makeDefaults()

@@ -13,6 +13,7 @@ import UniformTypeIdentifiers
 struct StripFileDropDelegate: DropDelegate {
     /// nil = 中转格被用户关掉（不是「帧还没量到」，后者仍传 `.zero`）。
     let shelfFrame: CGRect?
+    let trashFrame: CGRect?
     let folderFrames: [String: CGRect]
     let orderedPaths: [String]
     var headSlack: CGFloat = StripDropRouting.defaultHeadSlack
@@ -48,6 +49,7 @@ struct StripFileDropDelegate: DropDelegate {
         StripDropRouting.route(location: info.location,
                                isApplicationDrag: isApplicationDrag,
                                shelfFrame: shelfFrame,
+                               trashFrame: trashFrame,
                                folderFrames: folderFrames,
                                orderedPaths: orderedPaths,
                                headSlack: headSlack)

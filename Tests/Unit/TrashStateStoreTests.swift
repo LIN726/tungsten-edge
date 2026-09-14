@@ -1,0 +1,263 @@
+import AppKit
+import XCTest
+
+@MainActor
+final class TrashStateStoreTests: XCTestCase {
+    private final class FakeClient: FinderTrashClienting {
+        var permissions: [(Bool, @MainActor (FinderAutomationStatus) -> Void)] = []
+        var counts: [@MainActor (FinderTrashOutcome) -> Void] = []
+        var empties: [(Bool, @MainActor (FinderTrashOutcome) -> Void)] = []
+        var activations: [@MainActor () -> Void] = []
+        var opens = 0
+        var asks: [Bool] = []
+        func permission(ask: Bool, completion: @escaping @MainActor (FinderAutomationStatus) -> Void) {
+            asks.append(ask); permissions.append((ask, completion))
+        }
+        func count(completion: @escaping @MainActor (FinderTrashOutcome) -> Void) { counts.append(completion) }
+        func empty(interactive: Bool, completion: @escaping @MainActor (FinderTrashOutcome) -> Void) {
+            empties.append((interactive, completion))
+        }
+        func activateFinder(completion: @escaping @MainActor () -> Void) { activations.append(completion) }
+        func openTrash() { opens += 1 }
+        func cancelPending() {}
+    }
+
+    private func make(_ client: FakeClient, confirm: @escaping () -> Bool = { true },
+                      trasher: @escaping @Sendable (URL) throws -> Void = { _ in }) -> TrashStateStore {
+        let store = TrashStateStore(client: client, fileTrasher: trasher,
+            workQueue: DispatchQueue(label: "trash-tests", attributes: .concurrent),
+            confirmEmpty: { completion in completion(confirm()) },
+            beep: {}, notificationCenter: NotificationCenter())
+        store.setEnabled(true)
+        store.start()
+        addTeardownBlock { @MainActor in store.stop() }
+        return store
+    }
+
+    private func initialize(_ client: FakeClient, count: Int = 3) {
+        client.permissions.removeFirst().1(.granted)
+        client.counts.removeFirst()(.count(count))
+    }
+
+    func testNoEmptyWithoutConfirmationAndReentryIsBlocked() {
+        let client = FakeClient()
+        var confirmations = 0
+        let store = make(client, confirm: { confirmations += 1; return false })
+        initialize(client)
+        store.emptyTrash()
+        store.emptyTrash()
+        XCTAssertEqual(client.permissions.count, 1)
+        client.permissions.removeFirst().1(.granted)
+        XCTAssertEqual(confirmations, 1)
+        XCTAssertTrue(client.empties.isEmpty)
+        XCTAssertFalse(store.isEmptying)
+    }
+
+    /// The live alert answers later, from a run-loop block; nothing may be sent before it does,
+    /// and a cancel must queue a fresh read because the permission step discarded the one in flight.
+    func testPendingConfirmationSendsNothingAndCancelRereads() {
+        let client = FakeClient()
+        var answer: (@MainActor (Bool) -> Void)?
+        let store = TrashStateStore(client: client, fileTrasher: { _ in },
+            workQueue: DispatchQueue(label: "trash-tests"),
+            confirmEmpty: { answer = $0 },
+            beep: {}, notificationCenter: NotificationCenter())
+        store.setEnabled(true)
+        store.start()
+        addTeardownBlock { @MainActor in store.stop() }
+        initialize(client)
+        store.refresh()
+        client.permissions.removeFirst().1(.granted)   // count now in flight
+        store.emptyTrash()
+        client.permissions.removeFirst().1(.granted)   // confirmation now pending
+        XCTAssertNotNil(answer)
+        XCTAssertTrue(client.empties.isEmpty)
+        XCTAssertTrue(store.isEmptying)
+        client.counts.removeFirst()(.count(0))
+        XCTAssertTrue(store.isFull, "a read overtaken by the permission step must not apply")
+        answer?(false)
+        XCTAssertTrue(client.empties.isEmpty)
+        XCTAssertFalse(store.isEmptying)
+        client.permissions.removeFirst().1(.granted)
+        client.counts.removeFirst()(.count(0))
+        XCTAssertFalse(store.isFull)
+    }
+
+    func testSuccessfulEmptyDropsOldCountAndProtectsImmediateRead() {
+        let client = FakeClient()
+        let store = make(client)
+        initialize(client)
+        store.refresh()
+        client.permissions.removeFirst().1(.granted)
+        store.emptyTrash()
+        client.permissions.removeFirst().1(.granted)
+        XCTAssertFalse(client.empties[0].0)
+        client.empties.removeFirst().1(.succeeded)
+        XCTAssertFalse(store.isFull)
+        client.counts.removeFirst()(.count(5))
+        XCTAssertFalse(store.isFull)
+        client.permissions.removeFirst().1(.granted)
+        client.counts.removeFirst()(.count(5))
+        XCTAssertFalse(store.isFull)
+        store.refresh()
+        client.permissions.removeFirst().1(.granted)
+        client.counts.removeFirst()(.count(5))
+        XCTAssertTrue(store.isFull)
+    }
+
+    func testInteractiveRetryCancelAndTimeout() {
+        for outcome in [FinderTrashOutcome.cancelled, .timedOut, .failed(-10000)] {
+            let client = FakeClient()
+            var confirmations = 0
+            let store = make(client, confirm: { confirmations += 1; return true })
+            initialize(client)
+            store.emptyTrash()
+            client.permissions.removeFirst().1(.granted)
+            client.empties.removeFirst().1(.needsInteraction)
+            XCTAssertEqual(client.activations.count, 1)
+            client.activations.removeFirst()()
+            XCTAssertTrue(client.empties[0].0)
+            client.empties.removeFirst().1(outcome)
+            XCTAssertEqual(confirmations, 1)
+            XCTAssertFalse(store.isEmptying)
+            XCTAssertTrue(store.isFull)
+            client.permissions.removeFirst().1(.granted)
+            client.counts.removeFirst()(.count(0))
+            XCTAssertFalse(store.isFull)
+        }
+    }
+
+    func testActivationRefreshesCoalesceAndNeverAsk() {
+        let client = FakeClient()
+        let store = make(client)
+        for _ in 0..<3 { store.refresh() }
+        XCTAssertEqual(client.permissions.count, 1)
+        initialize(client)
+        XCTAssertEqual(client.permissions.count, 1)
+        initialize(client)
+        XCTAssertTrue(client.permissions.isEmpty)
+        XCTAssertFalse(client.asks.contains(true))
+    }
+
+    func testDisabledCallbacksCannotChangePermissionOrSendFollowup() {
+        let client = FakeClient()
+        let store = make(client)
+        initialize(client)
+        store.refresh()
+        store.setEnabled(false)
+        client.permissions.removeFirst().1(.denied)
+        XCTAssertEqual(store.status, .granted)
+        XCTAssertTrue(store.isFull)
+        store.refresh()
+        store.emptyTrash()
+        XCTAssertTrue(client.permissions.isEmpty)
+        store.setEnabled(true)
+        initialize(client)
+        store.emptyTrash()
+        client.permissions.removeFirst().1(.granted)
+        client.empties.removeFirst().1(.needsInteraction)
+        store.stop()
+        client.activations.removeFirst()()
+        XCTAssertTrue(client.empties.isEmpty)
+    }
+
+    func testOldGrantedCountCannotUndoNewDeniedPermission() {
+        let client = FakeClient()
+        let store = make(client)
+        initialize(client)
+        store.refresh()
+        client.permissions.removeFirst().1(.granted)
+        store.emptyTrash()
+        client.permissions.removeFirst().1(.denied)
+        client.counts.removeFirst()(.count(8))
+        XCTAssertEqual(store.status, .denied)
+        XCTAssertFalse(store.isFull)
+        XCTAssertTrue(client.empties.isEmpty)
+    }
+
+    func testOnlyExplicitEmptyMayAskAndDeniedFallsBackToOpen() {
+        let client = FakeClient()
+        let store = make(client)
+        client.permissions.removeFirst().1(.notDetermined)
+        XCTAssertEqual(client.asks, [false])
+        store.emptyTrash()
+        client.permissions.removeFirst().1(.notDetermined)
+        XCTAssertTrue(client.permissions[0].0)
+        client.permissions.removeFirst().1(.denied)
+        XCTAssertEqual(client.opens, 1)
+        XCTAssertTrue(client.empties.isEmpty)
+    }
+
+    func testSuccessfulDropAsksAndOldReadCannotClearFullIcon() async {
+        let client = FakeClient()
+        let trashed = expectation(description: "File action completed")
+        let store = make(client, trasher: { _ in trashed.fulfill() })
+        client.permissions.removeFirst().1(.notDetermined)
+        store.trash([URL(fileURLWithPath: "/tmp/tungsten-trash-test-file")])
+        await fulfillment(of: [trashed], timeout: 3)
+        // Drain the main-queue completion following the file operation.
+        let drained = expectation(description: "Main queue drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        await fulfillment(of: [drained], timeout: 3)
+        client.permissions.removeFirst().1(.notDetermined)
+        XCTAssertTrue(client.permissions[0].0)
+        client.permissions.removeFirst().1(.granted)
+        XCTAssertTrue(store.isFull)
+        client.permissions.removeFirst().1(.granted)
+        client.counts.removeFirst()(.count(0))
+        XCTAssertTrue(store.isFull)
+    }
+
+    func testFirstDropCanRequestPermissionBeforeStartupReadReturns() async {
+        let client = FakeClient()
+        let trashed = expectation(description: "File trashed")
+        let store = make(client, trasher: { _ in trashed.fulfill() })
+        store.trash([URL(fileURLWithPath: "/tmp/tungsten-trash-test-file")])
+        await fulfillment(of: [trashed], timeout: 3)
+        let drained = expectation(description: "Completion delivered")
+        DispatchQueue.main.async { drained.fulfill() }
+        await fulfillment(of: [drained], timeout: 3)
+        XCTAssertEqual(client.permissions.count, 2)
+        client.permissions.remove(at: 1).1(.notDetermined)
+        client.permissions.removeLast().1(.granted)
+        XCTAssertTrue(store.isFull)
+        client.permissions.removeFirst().1(.denied)
+        XCTAssertEqual(store.status, .granted)
+        XCTAssertTrue(store.isFull)
+    }
+
+    func testOverlappingDropCompletionAfterEmptyUsesAuthoritativeRead() async {
+        let client = FakeClient()
+        let entered = expectation(description: "File operation in flight")
+        let completed = expectation(description: "File operation finished")
+        let release = DispatchSemaphore(value: 0)
+        let store = make(client, trasher: { _ in
+            entered.fulfill()
+            _ = release.wait(timeout: .now() + 5)
+            completed.fulfill()
+        })
+        initialize(client)
+        store.trash([URL(fileURLWithPath: "/tmp/tungsten-trash-test-file")])
+        await fulfillment(of: [entered], timeout: 3)
+        store.emptyTrash()
+        client.permissions.removeFirst().1(.granted)
+        client.empties.removeFirst().1(.succeeded)
+        XCTAssertTrue(client.counts.isEmpty)
+        release.signal()
+        await fulfillment(of: [completed], timeout: 3)
+        let drained = expectation(description: "Drop completion delivered")
+        DispatchQueue.main.async { drained.fulfill() }
+        await fulfillment(of: [drained], timeout: 3)
+        client.permissions.removeFirst().1(.granted)
+        client.permissions.removeFirst().1(.granted)
+        client.counts.removeFirst()(.count(0))
+        XCTAssertFalse(store.isFull)
+    }
+
+    func testApplicationAndVolumeRootsCannotReachTrasher() {
+        XCTAssertFalse(TrashStateStore.canTrash(URL(fileURLWithPath: "/Applications/Missing.app")))
+        XCTAssertFalse(TrashStateStore.canTrash(URL(fileURLWithPath: "/")))
+        XCTAssertFalse(TrashStateStore.canTrash(URL(string: "https://example.com/file")!))
+        XCTAssertTrue(TrashStateStore.canTrash(URL(fileURLWithPath: "/tmp/missing-document.txt")))
+    }
+}

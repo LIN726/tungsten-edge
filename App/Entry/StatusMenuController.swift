@@ -79,8 +79,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     /// 做成子菜单而不是四行平铺，同「显示在 ▸」的理由：主菜单只多一行。
     private let dockSizeItem = NSMenuItem(title: String(localized: "Taskbar Size"), action: nil, keyEquivalent: "")
     private let dockSizeMenu = NSMenu()
-    /// 下面三条是普通勾选项，**恒在**（菜单开着时不许增删行），勾选状态由 refreshCheckmarks 落。
+    /// 下面四条是普通勾选项，**恒在**（菜单开着时不许增删行），勾选状态由 refreshCheckmarks 落。
     private let showShelfItem = NSMenuItem(title: String(localized: "Show Shelf"), action: #selector(toggleShowShelf), keyEquivalent: "")
+    private let showTrashItem = NSMenuItem(title: String(localized: "Show Trash"), action: #selector(toggleShowTrash), keyEquivalent: "")
     private let hoverNameItem = NSMenuItem(title: String(localized: "Show app name on hover"), action: #selector(toggleHoverName), keyEquivalent: "")
     private let windowLiftItem = NSMenuItem(title: String(localized: "Keep maximized windows above the taskbar"), action: #selector(toggleWindowLift), keyEquivalent: "")
     private let nativeDockSliderView: PreferenceSliderMenuItemView
@@ -255,10 +256,12 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         dockSizeItem.submenu = dockSizeMenu
         menu.addItem(dockSizeItem)
 
-        // 三个开关。设置窗口里它们各带一行灰色说明，菜单里没有副标题的位置，
+        // 四个开关。设置窗口里它们各带一行灰色说明，菜单里没有副标题的位置，
         // 说明随搬家一并删除（owner 2026-09-01 拍板接受这个代价）。
         showShelfItem.target = self
         menu.addItem(showShelfItem)
+        showTrashItem.target = self
+        menu.addItem(showTrashItem)
         hoverNameItem.target = self
         menu.addItem(hoverNameItem)
         windowLiftItem.target = self
@@ -476,6 +479,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     /// 所以菜单开着时调用也安全（不受 `allowsLayoutChange` 约束）。
     private func refreshTaskbarPreferenceStates() {
         showShelfItem.state = store.showShelf ? .on : .off
+        showTrashItem.state = store.showTrash ? .on : .off
         hoverNameItem.state = store.hoverStyle.isExpressive ? .on : .off
         windowLiftItem.state = store.windowLiftEnabled ? .on : .off
         let current = store.dockSize.rawValue
@@ -653,6 +657,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     @objc private func toggleShowShelf() {
         store.setShowShelf(!store.showShelf)
+        refreshCheckmarks()
+    }
+
+    @objc private func toggleShowTrash() {
+        store.setShowTrash(!store.showTrash)
         refreshCheckmarks()
     }
 

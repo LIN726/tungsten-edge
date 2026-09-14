@@ -77,6 +77,7 @@ enum FileItemMenuBuilder {
         menu.addItem(ClosureMenuItem(String(localized: "Move to Trash")) {
             do {
                 try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                TrashStateStore.shared.noteTrashedInApp()
                 onTrashed?()
             } catch {
                 NSSound.beep()   // 失败（权限/只读卷等）不弹框,与访达的静默拒绝一致

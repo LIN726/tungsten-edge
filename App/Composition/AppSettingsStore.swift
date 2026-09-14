@@ -78,6 +78,7 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var launchAtLogin: Bool
     /// 中转格是否显示在固定文件夹区头位。关掉后它不再渲染，暂存的文件不受影响。
     @Published private(set) var showShelf: Bool
+    @Published private(set) var showTrash: Bool
     /// 任务条尺寸档位。面板几何与条内所有 chip 尺寸都由它派生。
     @Published private(set) var dockSize: DockSize
     /// 悬停效果档位。只影响条内 chip 的悬停视觉，静息布局逐像素不变（因此无需 relayout）。
@@ -142,6 +143,7 @@ final class AppSettingsStore: ObservableObject {
         defaults.register(defaults: [
             Keys.launchAtLogin: false,
             Keys.showShelf: true,
+            Keys.showTrash: true,
             Keys.fullscreenIntentEnabled: true,
             Keys.nativeDockAutoHideDelay: Self.defaultNativeDockAutoHideDelay,
             // 首次安装 = 常驻；remembered 的种子仍是有限档，见常量注释。
@@ -150,6 +152,7 @@ final class AppSettingsStore: ObservableObject {
 
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
         showShelf = defaults.bool(forKey: Keys.showShelf)
+        showTrash = defaults.bool(forKey: Keys.showTrash)
         // 有意**不**进上面的 register：缺键即 false = 老用户维持关。
         // 全新安装那一次由 `seedWindowLiftEnabledForFreshInstall()` 显式写成 true——
         // register 一个 true 会把**所有**从没碰过这个开关的老用户一并打开，而这个功能
@@ -323,6 +326,12 @@ final class AppSettingsStore: ObservableObject {
         defaults.set(value, forKey: Keys.showShelf)
     }
 
+    func setShowTrash(_ value: Bool) {
+        guard showTrash != value else { return }
+        showTrash = value
+        defaults.set(value, forKey: Keys.showTrash)
+    }
+
     /// Seeds "lift maximized windows clear of the taskbar" to on for a fresh install (owner 2026-09-01).
     ///
     /// **Only `AppDelegate` may call this, once.** The verdict is `InstallLineage`: a snapshot of the
@@ -479,6 +488,8 @@ final class AppSettingsStore: ObservableObject {
 private enum Keys {
     static let launchAtLogin = "com.tungsten.edge.launchAtLogin"
     static let showShelf = "com.tungsten.edge.showShelf"
+    // Never read the retired com.tungsten.edge.trash.visible key.
+    static let showTrash = "com.tungsten.edge.showTrash"
     static let dockSize = "com.tungsten.edge.dockSize"
     static let hoverStyle = "com.tungsten.edge.hoverStyle"
         // `com.tungsten.edge.appearanceMode` 已随深色模式一起删除（owner 2026-08-16）。

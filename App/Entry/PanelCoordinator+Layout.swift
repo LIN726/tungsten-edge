@@ -143,6 +143,12 @@ extension PanelCoordinator {
                 if self.folderPopupWantsOpen, self.openPopupContent == .shelf { self.closeFolderPopup() }
                 DispatchQueue.main.async { [weak self] in self?.relayout(animated: true) }
             }
+        showTrashSubscription = settingsStore.$showTrash
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { [weak self] in self?.relayout(animated: true) }
+            }
         dockSizeSubscription = settingsStore.$dockSize
             .removeDuplicates()
             .dropFirst()

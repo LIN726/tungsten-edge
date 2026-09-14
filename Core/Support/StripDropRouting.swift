@@ -14,6 +14,7 @@ enum StripDropRouting {
     enum Target: Equatable {
         /// 落在中转格 → 暂存（任何文件/文件夹，引用不搬家）。
         case stash
+        case trash
         /// 落在某个固定文件夹 chip → 把来源移入该文件夹。
         case moveInto(path: String)
         /// 落在文件夹区 → 固定目录到显示序 index 位（仅目录有效，由调用方过滤）。
@@ -44,6 +45,7 @@ enum StripDropRouting {
     static func route(location: CGPoint,
                       isApplicationDrag: Bool,
                       shelfFrame: CGRect?,
+                      trashFrame: CGRect?,
                       folderFrames: [String: CGRect],
                       orderedPaths: [String],
                       headSlack: CGFloat = defaultHeadSlack,
@@ -51,6 +53,8 @@ enum StripDropRouting {
         // ⚠️ 安全闸，必须是第一句：应用永远走保留，绝不落到 .moveInto / .pin / .stash。
         // 整条任务条都是它的落点——用户的直觉是「拖到 Dock 上」，落在窗口区必须算数。
         if isApplicationDrag { return .keepApp }
+
+        if let trashFrame, trashFrame != .zero, location.x >= trashFrame.minX { return .trash }
 
         let frames = orderedPaths.compactMap { folderFrames["folder-" + $0] }
 

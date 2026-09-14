@@ -184,6 +184,7 @@ final class PanelCoordinator: NSObject {
     var taskbarScreenPlacementSubscription: AnyCancellable?
     var displayTopologySubscription: AnyCancellable?
     var showShelfSubscription: AnyCancellable?
+    var showTrashSubscription: AnyCancellable?
     var dockSizeSubscription: AnyCancellable?
     /// 换档事务代次：吞掉换档过程中被其它路径排队的动画布局（见 beginDockSizeChange）。
     var dockSizeChangeGeneration: UInt64 = 0

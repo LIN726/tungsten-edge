@@ -60,6 +60,8 @@ extension DockStripView {
             return appBubbleName(bundleID: bid, fallback: bid)
         case let .keptApp(bid):
             return appBubbleName(bundleID: bid, fallback: bid)
+        case .trash:
+            return String(localized: "Trash")
         case .shelf:
             let count = shelfStore.itemPaths.count
             return count > 0
@@ -104,6 +106,7 @@ extension DockStripView {
         frames.append(contentsOf: folderChipFrames.values)
         frames.append(contentsOf: messagingChipFrames.values)
         if shelfFrame != .zero { frames.append(shelfFrame) }
+        if settingsStore.showTrash, trashFrame != .zero { frames.append(trashFrame) }
         return StripContextMenuZone.claims(
             point: point,
             chipFrames: frames,

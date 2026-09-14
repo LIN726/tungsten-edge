@@ -12,6 +12,7 @@ struct DockStripView: View {
     @EnvironmentObject var pinnedFolderStore: PinnedFolderStore
     @EnvironmentObject var folderCoverStore: PinnedFolderCoverStore
     @EnvironmentObject var shelfStore: ShelfStore
+    @ObservedObject var trashStore = TrashStateStore.shared
     @EnvironmentObject var settingsStore: AppSettingsStore
     @EnvironmentObject var displayTopologyStore: DisplayTopologyStore
 
@@ -102,6 +103,7 @@ struct DockStripView: View {
     /// 中转格 frame（"strip" 空间）。**独立上报,不塞进 folderChipFrames**（评审：那个字典专属
     /// 文件夹 chip,后续还喂文件夹重排 hit-test,不能混 sentinel）。喂中转弹窗锚点 + drop 路由。
     @State var shelfFrame: CGRect = .zero
+    @State var trashFrame: CGRect = .zero
 
     /// 外部文件拖入的实时落点目标（悬停高亮用;nil = 没有外部拖拽悬停）。
     @State var externalDropTarget: StripDropRouting.Target?
@@ -266,6 +268,7 @@ struct DockStripView: View {
             // 关掉中转格后直接传 nil：ShelfFramePreferenceKey.reduce 刻意忽略 .zero，
             // 旧帧不会被清掉，只看帧的话落在原位置仍会误判成暂存。
             shelfFrame: settingsStore.showShelf ? shelfFrame : nil,
+            trashFrame: settingsStore.showTrash ? trashFrame : nil,
             folderFrames: folderChipFrames,
             orderedPaths: pinnedFolderStore.folderPaths,
             // chip 间距随档位缩放，「插到最前面」那段 slack 也得跟着缩，否则小档时它相对更宽、
@@ -406,14 +409,19 @@ struct DockStripView: View {
             updateLandingAnchor()
         }
         .onPreferenceChange(ShelfFramePreferenceKey.self) { shelfFrame = $0 }
+        .onPreferenceChange(TrashFramePreferenceKey.self) { trashFrame = $0 }
         .onChange(of: pinnedFolderStore.folderPaths) { currentPaths in
-            let validIDs = Set(["shelf"] + currentPaths.map { "folder-\($0)" })
+            let validIDs = Set(["shelf", "trash"] + currentPaths.map { "folder-\($0)" })
             animatedEntryIDs.formIntersection(validIDs)
         }
         // 中转格显隐会改变整个固定区的落点几何：正在进行的外部拖放悬停立即收掉，不留高亮。
         // 入场动画只摘 "shelf" 这一个 id——整片清掉会让重新勾上时所有文件夹 chip 一起重放入场。
         .onChange(of: settingsStore.showShelf) { visible in
             if !visible { animatedEntryIDs.remove("shelf") }
+            externalDropHoverEnded(isLanding: false)
+        }
+        .onChange(of: settingsStore.showTrash) { visible in
+            if !visible { animatedEntryIDs.remove("trash") }
             externalDropHoverEnded(isLanding: false)
         }
         // No .frame(maxWidth: .infinity) here — lets NSHostingView.fittingSize reflect
@@ -464,7 +472,8 @@ struct DockStripView: View {
             return
         }
         let geometry = FolderChipDropGeometry(stripScreenRect: stripRootScreenRect,
-                                              folderZoneMaxX: folderZoneMaxX)
+                                              folderZoneMaxX: folderZoneMaxX,
+                                              trashMinX: settingsStore.showTrash && trashFrame != .zero ? trashFrame.minX : nil)
         dragController.setFolderDropGeometry(geometry)
         dragController.setFolderDragZone(geometry.classify(screenPoint: dragController.globalLocation))
     }
@@ -596,7 +605,7 @@ struct DockStripView: View {
             }
         case let .keptApp(bid):
             launcherTap(bid, hasRealWindow: false)   // 保留占位只在没有真窗口时存在
-        case .pinnedFolder, .shelf, .divider, .externalDropGhost:
+        case .pinnedFolder, .shelf, .trash, .divider, .externalDropGhost:
             return   // 空档不可拖，也就不会有飞行中的载荷指向它
         }
     }
@@ -706,7 +715,7 @@ struct DockStripView: View {
             // 文件夹 chip 两档都是 1.12 底锚放大，且没有按压反馈（AGENTS《Taskbar Size Tiers》）。
             return DragCarrierGeometry.pickUpPose(chipHeight: height, pressedScale: nil,
                                                   hoverScale: hovered ? PinnedFolderChip.hoverScale : nil)
-        case .shelf, .divider, .externalDropGhost:
+        case .shelf, .trash, .divider, .externalDropGhost:
             return .resting
         }
     }
@@ -1148,6 +1157,12 @@ struct DockStripView: View {
                                                value: geo.frame(in: .named("strip")))
                     }
                 )
+        case .trash:
+            stripEntryView(entry, projection: projection)
+                .background(GeometryReader { geo in
+                    Color.clear.preference(key: TrashFramePreferenceKey.self,
+                                           value: geo.frame(in: .named("strip")))
+                })
         case .divider:
             stripEntryView(entry, projection: projection)
         case .externalDropGhost:
@@ -1243,6 +1258,10 @@ struct DockStripView: View {
             )
             .stripEntrance(id: entrance ? entry.id : nil, delay: delay,
                            animatedEntryIDs: $animatedEntryIDs)
+        case .trash:
+            trashChip(hovered: hovered)
+                .stripEntrance(id: entrance ? entry.id : nil, delay: 0,
+                               animatedEntryIDs: $animatedEntryIDs)
         case .shelf:
             ShelfChip(
                 itemCount: shelfStore.itemPaths.count,

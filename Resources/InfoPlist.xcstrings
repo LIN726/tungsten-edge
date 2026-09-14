@@ -38,19 +38,19 @@
       }
     },
     "NSAppleEventsUsageDescription" : {
-      "comment" : "系统授权弹窗的原文——读取访达窗口所在文件夹时由 macOS 弹出。",
+      "comment" : "系统自动化授权用途：访达内容预览、废纸篓状态与清倒。",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tungsten Edge uses this to read the folder shown in the current Finder window, so it can display that folder's contents in a quick panel."
+            "value" : "Tungsten Edge uses this to preview the folder shown in Finder, display whether the Trash is empty, and empty the Trash."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "用于读取当前访达窗口所在文件夹，以便显示文件夹内容快捷面板。"
+            "value" : "用于读取当前访达窗口所在文件夹以显示快捷面板，以及显示废纸篓空满状态和清倒废纸篓。"
           }
         }
       }
