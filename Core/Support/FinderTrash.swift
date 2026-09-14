@@ -151,15 +151,44 @@ enum TrashWindowLookup {
     /// process's language for the rest.
     static let finderTitles: Set<String> = ["Trash", "废纸篓"]
 
+    static func titles(localizedName: String?) -> Set<String> {
+        guard let localizedName, !localizedName.isEmpty else { return finderTitles }
+        return finderTitles.union([localizedName])
+    }
+
     /// Prefers the front window (toggle then minimizes it), then a visible one, then a minimized one.
-    static func actionWindowID(finderWindows: [WindowMenuEntry], localizedName: String?) -> String? {
-        var titles = finderTitles
-        if let localizedName, !localizedName.isEmpty { titles.insert(localizedName) }
+    static func actionWindowID(finderWindows: [WindowMenuEntry], titles: Set<String>) -> String? {
         let matches = finderWindows.filter { titles.contains($0.title) }
         let chosen = matches.first { $0.marker == .front }
             ?? matches.first { $0.marker == .none }
             ?? matches.first
         return chosen?.actionWindowID
+    }
+}
+
+/// Keeps Finder's Trash window from also showing as its own card: the Trash chip stands in for it.
+enum TrashWindowAbsorption {
+    /// Single-window Finder seats titled as the Trash — but only while Finder keeps another card.
+    /// A lone Finder window already renders as the plain Finder icon (no title), and absorbing it
+    /// would take Finder off the bar entirely. Tab groups stay: dropping the visible tab's record
+    /// would re-title the card from a background tab.
+    static func absorbedWindowIDs(in snapshot: DockSnapshot, trashTitles: Set<String>) -> Set<WindowID> {
+        var groups: [String: [WindowRecord]] = [:]
+        for record in snapshot.windows.values
+        where record.bundleIdentifier == FinderTaskbarPolicy.bundleID && !record.groupID.hasPrefix("app-") {
+            groups[record.groupID, default: []].append(record)
+        }
+        let trashGroups = groups.values.filter { $0.count == 1 && trashTitles.contains($0[0].title) }
+        guard !trashGroups.isEmpty, groups.count > trashGroups.count else { return [] }
+        return Set(trashGroups.map { $0[0].id })
+    }
+
+    /// Filters before `StripItem.items(from:)` so the remaining Finder cards count themselves
+    /// correctly (a single remaining one renders as the bare icon, as it would without the Trash).
+    static func removing(_ ids: Set<WindowID>, from snapshot: DockSnapshot) -> DockSnapshot {
+        guard !ids.isEmpty else { return snapshot }
+        return DockSnapshot(windows: snapshot.windows.filter { !ids.contains($0.key) },
+                            orderedWindowIDs: snapshot.orderedWindowIDs.filter { !ids.contains($0) })
     }
 }
 

@@ -101,18 +101,54 @@ final class FinderTrashTests: XCTestCase {
         func entry(_ id: String, _ title: String, _ marker: WindowMenuEntry.Marker) -> WindowMenuEntry {
             WindowMenuEntry(actionWindowID: id, title: title, marker: marker)
         }
+        let known = TrashWindowLookup.titles(localizedName: nil)
         XCTAssertNil(TrashWindowLookup.actionWindowID(
-            finderWindows: [entry("docs", "Documents", .front)], localizedName: "废纸篓"))
+            finderWindows: [entry("docs", "Documents", .front)], titles: known))
         // The front Trash window wins, so a second click minimizes it.
         XCTAssertEqual(TrashWindowLookup.actionWindowID(
             finderWindows: [entry("min", "废纸篓", .minimized), entry("vis", "Trash", .none),
-                            entry("front", "废纸篓", .front)], localizedName: nil), "front")
+                            entry("front", "废纸篓", .front)], titles: known), "front")
         XCTAssertEqual(TrashWindowLookup.actionWindowID(
             finderWindows: [entry("min", "Trash", .minimized), entry("vis", "Trash", .none)],
-            localizedName: nil), "vis")
+            titles: known), "vis")
         // A minimized one is restored rather than opening a new window.
         XCTAssertEqual(TrashWindowLookup.actionWindowID(
-            finderWindows: [entry("min", "Corbeille", .minimized)], localizedName: "Corbeille"), "min")
+            finderWindows: [entry("min", "Corbeille", .minimized)],
+            titles: TrashWindowLookup.titles(localizedName: "Corbeille")), "min")
+    }
+
+    private func finderRecord(_ id: String, _ title: String, group: String? = nil,
+                              bundle: String = "com.apple.finder") -> WindowRecord {
+        WindowRecord(id: WindowID(rawValue: id), appID: AppID(rawValue: bundle), pid: 100,
+                     bundleIdentifier: bundle, title: title, bounds: nil, status: .inactive,
+                     cgWindowID: 1, groupID: group ?? id)
+    }
+
+    private func snapshot(_ records: [WindowRecord]) -> DockSnapshot {
+        DockSnapshot(windows: Dictionary(uniqueKeysWithValues: records.map { ($0.id, $0) }),
+                     orderedWindowIDs: records.map(\.id))
+    }
+
+    func testTrashWindowCardIsAbsorbedOnlyWhileFinderKeepsAnotherCard() {
+        let titles = TrashWindowLookup.titles(localizedName: nil)
+        let trash = finderRecord("cgw-1", "废纸篓")
+        let docs = finderRecord("cgw-2", "归档")
+        let withOther = snapshot([docs, trash])
+        XCTAssertEqual(TrashWindowAbsorption.absorbedWindowIDs(in: withOther, trashTitles: titles),
+                       [trash.id])
+        // The remaining Finder card counts alone again, so it renders as the bare icon.
+        let items = StripItem.items(from: TrashWindowAbsorption.removing([trash.id], from: withOther))
+        XCTAssertEqual(items.map(\.id), [docs.id.rawValue])
+        XCTAssertFalse(items[0].showsTitle)
+        // A lone Trash window is the only Finder card: absorbing it would take Finder off the bar.
+        XCTAssertTrue(TrashWindowAbsorption.absorbedWindowIDs(in: snapshot([trash]), trashTitles: titles).isEmpty)
+        // A tab group showing the Trash tab keeps its card.
+        let tabbed = snapshot([docs, finderRecord("cgw-3", "废纸篓", group: "tabgrp-1"),
+                               finderRecord("cgw-4", "下载", group: "tabgrp-1")])
+        XCTAssertTrue(TrashWindowAbsorption.absorbedWindowIDs(in: tabbed, trashTitles: titles).isEmpty)
+        // Another app's window titled "Trash" is not Finder's.
+        let other = snapshot([docs, finderRecord("cgw-5", "Trash", bundle: "com.example.mail")])
+        XCTAssertTrue(TrashWindowAbsorption.absorbedWindowIDs(in: other, trashTitles: titles).isEmpty)
     }
 
     func testMenusDoNotDependOnCachedFullness() {

@@ -22,7 +22,13 @@ extension DockStripView {
     func makeProjection() -> StripProjection {
         // This is the only snapshot-to-strip conversion in one body evaluation. Everything below,
         // including drag callbacks captured by that body, consumes the same immutable projection.
-        let snapshotItems = StripItem.items(from: runtime.snapshot)
+        // The Trash chip stands in for Finder's Trash window, so that window gets no card of its own.
+        let stripSnapshot = settingsStore.showTrash
+            ? TrashWindowAbsorption.removing(
+                TrashWindowAbsorption.absorbedWindowIDs(in: runtime.snapshot, trashTitles: Self.trashWindowTitles),
+                from: runtime.snapshot)
+            : runtime.snapshot
+        let snapshotItems = StripItem.items(from: stripSnapshot)
         let snapshotBundleIDs = Set(snapshotItems.compactMap(\.bundleIdentifier))
         let hiddenBundleIDs = Set(snapshotItems.compactMap { item in
             item.status == "hidden" ? item.bundleIdentifier : nil

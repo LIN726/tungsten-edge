@@ -37,8 +37,14 @@ extension DockStripView {
         let finderWindows = WindowListMenuPlan.entries(snapshot: runtime.snapshot,
                                                        bundleID: FinderTaskbarPolicy.bundleID,
                                                        fallbackTitle: "")
-        let trashPath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash").path
-        return TrashWindowLookup.actionWindowID(finderWindows: finderWindows,
-                                                localizedName: FileManager.default.displayName(atPath: trashPath))
+        return TrashWindowLookup.actionWindowID(finderWindows: finderWindows, titles: Self.trashWindowTitles)
     }
+
+    /// Resolved once: the projection reads it on every body pass, and the process language
+    /// cannot change without a relaunch.
+    static let trashWindowTitles = TrashWindowLookup.titles(
+        localizedName: FileManager.default.displayName(
+            atPath: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash").path
+        )
+    )
 }
