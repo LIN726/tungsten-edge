@@ -118,9 +118,16 @@ struct TrashGridPopupView: View {
         trashStore.revealItem(item.url)
     }
 
+    /// Only actions that never touch the item: Finder performs moves and deletes of a Trash item on
+    /// the sender's Full Disk Access (denied, with Finder's own error dialog blocking the reply), and
+    /// opening a document there does nothing. Deleting or putting back happens in the Trash window.
     private func itemMenu(for item: TrashItem) -> NSMenu {
         let menu = NSMenu()
         menu.addItem(ClosureMenuItem(String(localized: "Show in Finder")) { reveal(item) })
+        menu.addItem(ClosureMenuItem(String(localized: "Copy Name")) {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(item.name, forType: .string)
+        })
         return menu
     }
 

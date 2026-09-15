@@ -243,6 +243,25 @@ enum TrashWindowAbsorption {
     }
 }
 
+/// Paths inside a Trash: the user's `~/.Trash` or a volume root's `.Trashes`. Matched by whole path
+/// components, never by string prefix, and only strictly inside — the Trash folder itself is not
+/// an item. Such URLs never reach a taskbar drop target: the shelf would keep a reference into the
+/// Trash, and a pinned-folder move would need Full Disk Access, which Tungsten Edge does not have.
+enum TrashPath {
+    static func isInsideTrash(_ url: URL, homeDirectory: URL) -> Bool {
+        guard url.isFileURL else { return false }
+        let parts = url.standardizedFileURL.pathComponents
+        let home = homeDirectory.standardizedFileURL.pathComponents
+        if parts.count > home.count + 1, Array(parts.prefix(home.count)) == home, parts[home.count] == ".Trash" {
+            return true
+        }
+        // `/.Trashes/<uid>/item` on the startup volume, `/Volumes/<name>/.Trashes/<uid>/item` elsewhere.
+        if parts.count > 3, parts[1] == ".Trashes" { return true }
+        if parts.count > 5, parts[1] == "Volumes", parts[3] == ".Trashes" { return true }
+        return false
+    }
+}
+
 enum TrashMenuPlan {
     enum Item: Equatable { case open, empty(enabled: Bool) }
 

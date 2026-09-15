@@ -7,14 +7,14 @@ final class StripDropRoutingTests: XCTestCase {
         let trash = CGRect(x: 320, y: 0, width: 40, height: 54)
         for shelf: CGRect? in [nil, .zero, CGRect(x: 0, y: 0, width: 40, height: 54)] {
             for x: CGFloat in [320, 340, 360, 380] {
-                XCTAssertEqual(StripDropRouting.route(location: CGPoint(x: x, y: 20), isApplicationDrag: false,
+                XCTAssertEqual(StripDropRouting.route(location: CGPoint(x: x, y: 20), isApplicationDrag: false, isTrashItemDrag: false,
                     shelfFrame: shelf, trashFrame: trash, folderFrames: [:], orderedPaths: []), .trash)
-                XCTAssertEqual(StripDropRouting.route(location: CGPoint(x: x, y: 20), isApplicationDrag: true,
+                XCTAssertEqual(StripDropRouting.route(location: CGPoint(x: x, y: 20), isApplicationDrag: true, isTrashItemDrag: false,
                     shelfFrame: shelf, trashFrame: trash, folderFrames: [:], orderedPaths: []), .keepApp)
             }
         }
         for frame: CGRect? in [nil, .zero] {
-            XCTAssertEqual(StripDropRouting.route(location: CGPoint(x: 350, y: 20), isApplicationDrag: false,
+            XCTAssertEqual(StripDropRouting.route(location: CGPoint(x: 350, y: 20), isApplicationDrag: false, isTrashItemDrag: false,
                 shelfFrame: nil, trashFrame: frame, folderFrames: [:], orderedPaths: []), .none)
         }
     }
@@ -32,21 +32,21 @@ final class StripDropRoutingTests: XCTestCase {
 
     func testHitShelfStashes() {
         let target = StripDropRouting.route(location: CGPoint(x: 120, y: 26),
-                                            isApplicationDrag: false,
+                                            isApplicationDrag: false, isTrashItemDrag: false,
                                             shelfFrame: shelf, trashFrame: nil, folderFrames: [:], orderedPaths: [])
         XCTAssertEqual(target, .stash)
     }
 
     func testLeftOfShelfIsNone() {
         let target = StripDropRouting.route(location: CGPoint(x: 50, y: 26),
-                                            isApplicationDrag: false,
+                                            isApplicationDrag: false, isTrashItemDrag: false,
                                             shelfFrame: shelf, trashFrame: nil, folderFrames: [:], orderedPaths: [])
         XCTAssertEqual(target, .none)
     }
 
     func testZeroShelfFrameRejectsEverything() {
         let target = StripDropRouting.route(location: CGPoint(x: 120, y: 26),
-                                            isApplicationDrag: false,
+                                            isApplicationDrag: false, isTrashItemDrag: false,
                                             shelfFrame: .zero, trashFrame: nil, folderFrames: [:], orderedPaths: [])
         XCTAssertEqual(target, .none)
     }
@@ -54,7 +54,7 @@ final class StripDropRoutingTests: XCTestCase {
     func testNoFoldersPinsAtZeroWithinTailSlack() {
         // 中转格右缘 144 + 24pt 余量内 → 首次固定,插 0 位。
         let target = StripDropRouting.route(location: CGPoint(x: 160, y: 26),
-                                            isApplicationDrag: false,
+                                            isApplicationDrag: false, isTrashItemDrag: false,
                                             shelfFrame: shelf, trashFrame: nil, folderFrames: [:], orderedPaths: [])
         XCTAssertEqual(target, .pin(insertIndex: 0))
     }
@@ -63,7 +63,7 @@ final class StripDropRoutingTests: XCTestCase {
         let paths = ["/a", "/b"]
         // 第一个 chip 在 152..204；左右半都属于移入目标。
         let target = StripDropRouting.route(location: CGPoint(x: 160, y: 26),
-                                            isApplicationDrag: false,
+                                            isApplicationDrag: false, isTrashItemDrag: false,
                                             shelfFrame: shelf, trashFrame: nil, folderFrames: frames(paths), orderedPaths: paths)
         XCTAssertEqual(target, .moveInto(path: "/a"))
     }
@@ -71,7 +71,7 @@ final class StripDropRoutingTests: XCTestCase {
     func testDropOnRightHalfOfFirstFolderMovesIntoIt() {
         let paths = ["/a", "/b"]
         let target = StripDropRouting.route(location: CGPoint(x: 190, y: 26),
-                                            isApplicationDrag: false,
+                                            isApplicationDrag: false, isTrashItemDrag: false,
                                             shelfFrame: shelf, trashFrame: nil, folderFrames: frames(paths), orderedPaths: paths)
         XCTAssertEqual(target, .moveInto(path: "/a"))
     }
@@ -79,7 +79,7 @@ final class StripDropRoutingTests: XCTestCase {
     func testDropUsesHorizontalChipBand() {
         let paths = ["/a"]
         let target = StripDropRouting.route(location: CGPoint(x: 180, y: 200),
-                                            isApplicationDrag: false,
+                                            isApplicationDrag: false, isTrashItemDrag: false,
                                             shelfFrame: shelf, trashFrame: nil, folderFrames: frames(paths), orderedPaths: paths)
         XCTAssertEqual(target, .moveInto(path: "/a"))
     }
@@ -88,7 +88,7 @@ final class StripDropRoutingTests: XCTestCase {
         let paths = ["/a", "/b"]
         // 第一张右缘 204、第二张左缘 212；x=208 是真实 8pt 间隙。
         let target = StripDropRouting.route(location: CGPoint(x: 208, y: 26),
-                                            isApplicationDrag: false,
+                                            isApplicationDrag: false, isTrashItemDrag: false,
                                             shelfFrame: shelf, trashFrame: nil, folderFrames: frames(paths), orderedPaths: paths)
         XCTAssertEqual(target, .pin(insertIndex: 1))
     }
@@ -97,7 +97,7 @@ final class StripDropRoutingTests: XCTestCase {
         let paths = ["/a", "/b"]
         let partial = ["folder-/b": CGRect(x: 212, y: 0, width: 52, height: 52)]
         let target = StripDropRouting.route(location: CGPoint(x: 160, y: 26),
-                                            isApplicationDrag: false,
+                                            isApplicationDrag: false, isTrashItemDrag: false,
                                             shelfFrame: shelf, trashFrame: nil, folderFrames: partial, orderedPaths: paths)
         XCTAssertEqual(target, .pin(insertIndex: 0))
     }
@@ -106,7 +106,7 @@ final class StripDropRoutingTests: XCTestCase {
         let paths = ["/a", "/b"]
         // 第二 chip 右缘 264,+24 余量内 → 追加末位(2)。
         let target = StripDropRouting.route(location: CGPoint(x: 276, y: 26),
-                                            isApplicationDrag: false,
+                                            isApplicationDrag: false, isTrashItemDrag: false,
                                             shelfFrame: shelf, trashFrame: nil, folderFrames: frames(paths), orderedPaths: paths)
         XCTAssertEqual(target, .pin(insertIndex: 2))
     }
@@ -114,7 +114,7 @@ final class StripDropRoutingTests: XCTestCase {
     func testFarRightIsNone() {
         let paths = ["/a", "/b"]
         let target = StripDropRouting.route(location: CGPoint(x: 400, y: 26),
-                                            isApplicationDrag: false,
+                                            isApplicationDrag: false, isTrashItemDrag: false,
                                             shelfFrame: shelf, trashFrame: nil, folderFrames: frames(paths), orderedPaths: paths)
         XCTAssertEqual(target, .none)
     }
@@ -124,7 +124,7 @@ final class StripDropRoutingTests: XCTestCase {
     func testHiddenShelfStillMovesIntoFolders() {
         let paths = ["/a", "/b"]
         let target = StripDropRouting.route(location: CGPoint(x: 160, y: 26),
-                                            isApplicationDrag: false,
+                                            isApplicationDrag: false, isTrashItemDrag: false,
                                             shelfFrame: nil, trashFrame: nil, folderFrames: frames(paths), orderedPaths: paths)
         XCTAssertEqual(target, .moveInto(path: "/a"))
     }
@@ -134,7 +134,7 @@ final class StripDropRoutingTests: XCTestCase {
         // 首个 chip 左缘 152，headSlack 8 → 144..152 是「插到最前面」的唯一落点。
         // 没有这段的话首个 chip 整段先被判成 moveInto，插 0 位就永远做不到了。
         let target = StripDropRouting.route(location: CGPoint(x: 147, y: 26),
-                                            isApplicationDrag: false,
+                                            isApplicationDrag: false, isTrashItemDrag: false,
                                             shelfFrame: nil, trashFrame: nil, folderFrames: frames(paths), orderedPaths: paths)
         XCTAssertEqual(target, .pin(insertIndex: 0))
     }
@@ -142,7 +142,7 @@ final class StripDropRoutingTests: XCTestCase {
     func testHiddenShelfRejectsLeftOfHeadSlack() {
         let paths = ["/a"]
         let target = StripDropRouting.route(location: CGPoint(x: 120, y: 26),
-                                            isApplicationDrag: false,
+                                            isApplicationDrag: false, isTrashItemDrag: false,
                                             shelfFrame: nil, trashFrame: nil, folderFrames: frames(paths), orderedPaths: paths)
         XCTAssertEqual(target, .none, "中转格关掉后，它原来的位置不能再接收任何拖放")
     }
@@ -151,13 +151,13 @@ final class StripDropRoutingTests: XCTestCase {
         let paths = ["/a", "/b"]
         XCTAssertEqual(
             StripDropRouting.route(location: CGPoint(x: 208, y: 26),
-                                   isApplicationDrag: false,
+                                   isApplicationDrag: false, isTrashItemDrag: false,
                                    shelfFrame: nil, trashFrame: nil, folderFrames: frames(paths), orderedPaths: paths),
             .pin(insertIndex: 1)
         )
         XCTAssertEqual(
             StripDropRouting.route(location: CGPoint(x: 276, y: 26),
-                                   isApplicationDrag: false,
+                                   isApplicationDrag: false, isTrashItemDrag: false,
                                    shelfFrame: nil, trashFrame: nil, folderFrames: frames(paths), orderedPaths: paths),
             .pin(insertIndex: 2)
         )
@@ -169,7 +169,7 @@ final class StripDropRoutingTests: XCTestCase {
         for x in [CGFloat(50), 120, 160, 400] {
             XCTAssertEqual(
                 StripDropRouting.route(location: CGPoint(x: x, y: 26),
-                                       isApplicationDrag: false,
+                                       isApplicationDrag: false, isTrashItemDrag: false,
                                        shelfFrame: nil, trashFrame: nil, folderFrames: [:], orderedPaths: []),
                 .none
             )
@@ -189,7 +189,7 @@ final class StripDropRoutingTests: XCTestCase {
         for x in [CGFloat(0), 50, 120, 147, 160, 190, 208, 276, 400, 2000] {
             for shelfFrame in [shelf, nil] {
                 let target = StripDropRouting.route(location: CGPoint(x: x, y: 26),
-                                                    isApplicationDrag: true,
+                                                    isApplicationDrag: true, isTrashItemDrag: false,
                                                     shelfFrame: shelfFrame, trashFrame: nil,
                                                     folderFrames: folders, orderedPaths: paths)
                 XCTAssertEqual(target, .keepApp, "x=\(x) shelf=\(String(describing: shelfFrame))")
@@ -203,7 +203,7 @@ final class StripDropRoutingTests: XCTestCase {
         for x in [CGFloat(50), 120, 160, 400] {
             XCTAssertEqual(
                 StripDropRouting.route(location: CGPoint(x: x, y: 26),
-                                       isApplicationDrag: true,
+                                       isApplicationDrag: true, isTrashItemDrag: false,
                                        shelfFrame: nil, trashFrame: nil,
                                        folderFrames: [:], orderedPaths: []),
                 .keepApp
@@ -217,7 +217,7 @@ final class StripDropRoutingTests: XCTestCase {
         for x in [CGFloat(0), 50, 120, 147, 160, 208, 276, 400] {
             XCTAssertNotEqual(
                 StripDropRouting.route(location: CGPoint(x: x, y: 26),
-                                       isApplicationDrag: false,
+                                       isApplicationDrag: false, isTrashItemDrag: false,
                                        shelfFrame: shelf, trashFrame: nil,
                                        folderFrames: frames(paths), orderedPaths: paths),
                 .keepApp
@@ -272,13 +272,13 @@ final class StripDropRoutingTests: XCTestCase {
         let onShelfSpot = CGPoint(x: 120, y: 26)
         XCTAssertEqual(
             StripDropRouting.route(location: onShelfSpot,
-                                   isApplicationDrag: false,
+                                   isApplicationDrag: false, isTrashItemDrag: false,
                                    shelfFrame: shelf, trashFrame: nil, folderFrames: frames(paths), orderedPaths: paths),
             .stash
         )
         XCTAssertEqual(
             StripDropRouting.route(location: onShelfSpot,
-                                   isApplicationDrag: false,
+                                   isApplicationDrag: false, isTrashItemDrag: false,
                                    shelfFrame: nil, trashFrame: nil, folderFrames: frames(paths), orderedPaths: paths),
             .none
         )

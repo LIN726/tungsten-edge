@@ -48,6 +48,7 @@ struct StripFileDropDelegate: DropDelegate {
     private func route(_ info: DropInfo, isApplicationDrag: Bool) -> StripDropRouting.Target {
         StripDropRouting.route(location: info.location,
                                isApplicationDrag: isApplicationDrag,
+                               isTrashItemDrag: DragPasteboardInspector.containsOnlyTrashItems(),
                                shelfFrame: shelfFrame,
                                trashFrame: trashFrame,
                                folderFrames: folderFrames,
@@ -116,7 +117,9 @@ struct StripFileDropDelegate: DropDelegate {
             }
         }
         group.notify(queue: .main) {
-            let urls = box.urls.compactMap { $0 }
+            // Second gate for Trash items (the first is the hover route): filtered before the app
+            // split, so a Trash `.app` cannot reach the keep path either.
+            let urls = box.urls.compactMap { $0 }.filter { !DragPasteboardInspector.isInsideTrash($0) }
             guard !urls.isEmpty else { return }
             // 落定这一刻按**真实 URL** 再判一次应用身份（悬停期读的是拖放剪贴板，只用来
             // 决定高亮和光标）。分流是硬的：`onCommit` 收到的绝不含应用。
@@ -143,6 +146,8 @@ struct StripFileDropDelegate: DropDelegate {
     enum DragPasteboardInspector {
         private struct Session {
             let changeCount: Int
+            /// Every dragged URL is inside a Trash: the whole drop is refused.
+            let containsOnlyTrashItems: Bool
             let containsApplication: Bool
             /// 第一个应用 bundle 的 id。**解析 Info.plist 是读盘**，所以一次拖放会话只做一次
             /// ——`dropUpdated` 每 ~50ms 一次，逐次读盘会把主线程拖垮。
@@ -162,14 +167,26 @@ struct StripFileDropDelegate: DropDelegate {
             currentSession().applicationBundleID
         }
 
+        static func containsOnlyTrashItems() -> Bool {
+            currentSession().containsOnlyTrashItems
+        }
+
+        /// Path components only — nothing inside the Trash is read.
+        static func isInsideTrash(_ url: URL) -> Bool {
+            TrashPath.isInsideTrash(url, homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+        }
+
         private static func currentSession() -> Session {
             let pasteboard = NSPasteboard(name: .drag)
             let changeCount = pasteboard.changeCount
             if let session, session.changeCount == changeCount { return session }
-            let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
+            let dragged = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
+            // Trash items are filtered before the app check: a mixed drag keeps only the rest.
+            let urls = dragged.filter { !isInsideTrash($0) }
             let apps = urls.filter(isApplication)
             let next = Session(
                 changeCount: changeCount,
+                containsOnlyTrashItems: !dragged.isEmpty && urls.isEmpty,
                 containsApplication: !apps.isEmpty,
                 applicationBundleID: apps.first.flatMap { Bundle(url: $0)?.bundleIdentifier }
             )

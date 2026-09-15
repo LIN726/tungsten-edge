@@ -21,6 +21,24 @@ enum FolderSortOrder: String, CaseIterable {
     }
 }
 
+/// Whether a stored path is still there, told apart from "there but not readable": only `ENOENT` /
+/// `ENOTDIR` mean gone. Anything else (`EPERM` from a privacy-protected folder such as the Desktop,
+/// `EACCES`, I/O errors) must never delete a shelf reference.
+enum FileReachability: Equatable {
+    case exists, missing, inaccessible
+
+    static func of(path: String) -> FileReachability {
+        var info = stat()
+        let result = lstat(path, &info)
+        return classify(result: result, errorNumber: result == 0 ? 0 : errno)
+    }
+
+    static func classify(result: Int32, errorNumber: Int32) -> FileReachability {
+        if result == 0 { return .exists }
+        return errorNumber == ENOENT || errorNumber == ENOTDIR ? .missing : .inaccessible
+    }
+}
+
 /// 固定文件夹/废纸篓内容读取与排序。`load` 走文件系统（调用方放后台队列）；
 /// 排序与选封面是纯函数，进单测。枚举一律跳过隐藏文件。
 enum FolderContentsLoader {
@@ -30,6 +48,8 @@ enum FolderContentsLoader {
         var isDirectory: Bool
         var dateAdded: Date?
         var dateModified: Date?
+        /// false = the path exists but this process may not read it (privacy permission).
+        var isAccessible = true
     }
 
     static func load(directory: URL) throws -> [Entry] {
@@ -117,12 +137,19 @@ enum FolderContentsLoader {
         coverFile(in: entries, order: .dateAdded)
     }
 
-    /// 中转格：按给定路径列表构造条目（保持传入顺序 = 暂存序），路径已不存在的跳过。
+    /// 中转格：按给定路径列表构造条目（保持传入顺序 = 暂存序），确定不存在的跳过。
+    /// Unreadable paths stay as `isAccessible == false` entries: without the folder's privacy
+    /// permission an existing file looks the same as a deleted one to `fileExists`.
     static func entries(forPaths paths: [String]) -> [Entry] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .addedToDirectoryDateKey, .contentModificationDateKey]
         return paths.compactMap { path in
-            guard FileManager.default.fileExists(atPath: path) else { return nil }
+            let reachability = FileReachability.of(path: path)
+            guard reachability != .missing else { return nil }
             let url = URL(fileURLWithPath: path)
+            guard reachability == .exists else {
+                return Entry(url: url, name: url.lastPathComponent, isDirectory: false,
+                             dateAdded: nil, dateModified: nil, isAccessible: false)
+            }
             let values = try? url.resourceValues(forKeys: Set(keys))
             return Entry(
                 url: url,

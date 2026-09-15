@@ -133,6 +133,41 @@ final class FinderTrashTests: XCTestCase {
         XCTAssertEqual(TrashListingPlan.build(urlStrings: []), .loaded(items: [], hiddenCount: 0))
     }
 
+    func testTrashPathsMatchWholeComponentsOnlyInsideATrash() {
+        let home = URL(fileURLWithPath: "/Users/me", isDirectory: true)
+        let inside = ["/Users/me/.Trash/a.txt", "/Users/me/.Trash/Folder/", "/Users/me/.Trash/App.app",
+                      "/.Trashes/501/a.txt", "/Volumes/Disk/.Trashes/501/a.txt"]
+        let outside = ["/Users/me/.Trash", "/Users/me/.Trash/", "/Users/me/.TrashCan/a.txt", "/Users/me/Desktop/.Trash/a.txt",
+                       "/Users/other/.Trash/a.txt", "/Volumes/Disk/.Trashes/501", "/Volumes/Disk/Folder/.Trashes/501/a.txt",
+                       "/Users/me/Desktop/a.txt"]
+        for path in inside { XCTAssertTrue(TrashPath.isInsideTrash(URL(fileURLWithPath: path), homeDirectory: home), path) }
+        for path in outside { XCTAssertFalse(TrashPath.isInsideTrash(URL(fileURLWithPath: path), homeDirectory: home), path) }
+        XCTAssertFalse(TrashPath.isInsideTrash(URL(string: "https://example.com/.Trash/a")!, homeDirectory: home))
+    }
+
+    func testTrashItemDragsAreRefusedEverywhereOnTheBar() {
+        let shelf = CGRect(x: 100, y: 0, width: 44, height: 52)
+        let trash = CGRect(x: 400, y: 0, width: 40, height: 52)
+        let folders = ["folder-/a": CGRect(x: 152, y: 0, width: 52, height: 52)]
+        for x: CGFloat in [10, 120, 170, 300, 420] {
+            for isApp in [false, true] {
+                XCTAssertEqual(StripDropRouting.route(location: CGPoint(x: x, y: 20), isApplicationDrag: isApp,
+                                                      isTrashItemDrag: true, shelfFrame: shelf, trashFrame: trash,
+                                                      folderFrames: folders, orderedPaths: ["/a"]), .none)
+            }
+        }
+    }
+
+    func testUnreadableIsNeverMissing() {
+        XCTAssertEqual(FileReachability.classify(result: 0, errorNumber: 0), .exists)
+        XCTAssertEqual(FileReachability.classify(result: -1, errorNumber: ENOENT), .missing)
+        XCTAssertEqual(FileReachability.classify(result: -1, errorNumber: ENOTDIR), .missing)
+        for code in [EPERM, EACCES, EIO] {
+            XCTAssertEqual(FileReachability.classify(result: -1, errorNumber: code), .inaccessible)
+        }
+        XCTAssertEqual(FileReachability.of(path: "/tmp/tungsten-definitely-missing-\(UUID().uuidString)"), .missing)
+    }
+
     private func finderRecord(_ id: String, _ title: String, group: String? = nil,
                               bundle: String = "com.apple.finder") -> WindowRecord {
         WindowRecord(id: WindowID(rawValue: id), appID: AppID(rawValue: bundle), pid: 100,
