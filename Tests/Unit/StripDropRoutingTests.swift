@@ -283,4 +283,20 @@ final class StripDropRoutingTests: XCTestCase {
             .none
         )
     }
+
+    func testOnlyTheTrashDropsTheCursorBadge() {
+        XCTAssertTrue(StripDropRouting.usesGenericOperation(hoveredTarget: .trash, proposedIsCopy: true, sourceAllowsGeneric: true))
+        let others: [StripDropRouting.Target?] = [nil, .none, .stash, .keepApp, .moveInto(path: "/tmp/a"), .pin(insertIndex: 0)]
+        for target in others {
+            XCTAssertFalse(StripDropRouting.usesGenericOperation(hoveredTarget: target, proposedIsCopy: true, sourceAllowsGeneric: true),
+                           "\(String(describing: target))")
+        }
+    }
+
+    func testTrashKeepsTheAnswerWhenGenericIsNotOffered() {
+        // ⌥ held: the source offers copy only.
+        XCTAssertFalse(StripDropRouting.usesGenericOperation(hoveredTarget: .trash, proposedIsCopy: true, sourceAllowsGeneric: false))
+        // A refusal (e.g. Trash items) stays a refusal.
+        XCTAssertFalse(StripDropRouting.usesGenericOperation(hoveredTarget: .trash, proposedIsCopy: false, sourceAllowsGeneric: true))
+    }
 }

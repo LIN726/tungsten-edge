@@ -290,6 +290,9 @@ struct DockStripView: View {
             currentFrozenWidth: { frozenStripWidth },
             currentStripRect: { stripRootScreenRect }
         ))
+        // No cursor badge over the Trash. **Must be an `.overlay` directly after `.onDrop`**: AppKit
+        // gives the drag to the topmost registered view, and `.background` here lands below SwiftUI's.
+        .overlay(StripDropBadgeOverlay())
         // 与 "strip" 命名空间同一视图 → 屏幕 frame 即 "strip" 空间原点，供抽屉拖回任务条做坐标映射 + 进出判定。
         // **面板自己挪了也要重报落点锚点**：所有锚点都是 `stripFrameToScreen` 拿这个 rect 换算的。
         // 松手时 `teardown` 清掉 `conversion` → 条宽解冻 → 整条重新居中，消息区（在最左端）

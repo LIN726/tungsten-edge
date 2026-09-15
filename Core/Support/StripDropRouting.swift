@@ -122,4 +122,13 @@ extension StripDropRouting {
         }
         return after ? index + 1 : index
     }
+
+    /// Whether the strip answers a drag with the generic operation (no cursor badge) instead of
+    /// SwiftUI's `.copy` (the green plus). Only over the Trash, where Tungsten Edge moves the file
+    /// itself: `.copy` reads as "a copy goes in", and `.move` is never an option — it tells the source
+    /// the item left, and Finder deletes an app it dragged in. A source that does not offer generic
+    /// (e.g. ⌥ held) keeps `.copy`.
+    static func usesGenericOperation(hoveredTarget: Target?, proposedIsCopy: Bool, sourceAllowsGeneric: Bool) -> Bool {
+        proposedIsCopy && sourceAllowsGeneric && hoveredTarget == .trash
+    }
 }
