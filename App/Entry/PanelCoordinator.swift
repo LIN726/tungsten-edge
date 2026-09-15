@@ -126,6 +126,7 @@ final class PanelCoordinator: NSObject {
     enum PopupContent: Equatable {
         case folder(path: String)
         case shelf
+        case trash
     }
     var folderPopupPanel: NSPanel?
     /// 弹窗真正承载 SwiftUI 的 hosting view（contentView 是普通 NSView 容器,fittingSize 读这个）。

@@ -42,6 +42,25 @@ final class ProcessLivenessTests: XCTestCase {
         XCTAssertTrue(ProcessLiveness.interpret(result: -1, errorCode: 9999))
     }
 
+    // MARK: - ProcessGenerationCache
+
+    func testGenerationCacheServesOnlyTheSameProcessGeneration() {
+        var starts: [pid_t: timeval] = [42: timeval(tv_sec: 100, tv_usec: 5)]
+        let cache = ProcessGenerationCache<String>(startTime: { starts[$0] })
+        XCTAssertNil(cache.value(for: 42))
+        cache.remember("psn", for: 42)
+        XCTAssertEqual(cache.value(for: 42), "psn")
+        // Same pid, new process: the remembered value is dropped, not served.
+        starts[42] = timeval(tv_sec: 100, tv_usec: 6)
+        XCTAssertNil(cache.value(for: 42))
+        starts[42] = timeval(tv_sec: 100, tv_usec: 5)
+        XCTAssertNil(cache.value(for: 42))
+        // A dead process remembers nothing.
+        cache.remember("dead", for: 7)
+        starts[7] = timeval(tv_sec: 1, tv_usec: 0)
+        XCTAssertNil(cache.value(for: 7))
+    }
+
     // MARK: - 实际 syscall 单测
 
     func testCurrentProcessIsAlive() {

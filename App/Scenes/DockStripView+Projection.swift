@@ -25,7 +25,7 @@ extension DockStripView {
         // The Trash chip stands in for Finder's Trash window, so that window gets no card of its own.
         let stripSnapshot = settingsStore.showTrash
             ? TrashWindowAbsorption.removing(
-                TrashWindowAbsorption.absorbedWindowIDs(in: runtime.snapshot, trashTitles: Self.trashWindowTitles),
+                TrashWindowAbsorption.absorbedWindowIDs(in: runtime.snapshot, trashTitles: TrashWindowLookup.liveTitles),
                 from: runtime.snapshot)
             : runtime.snapshot
         let snapshotItems = StripItem.items(from: stripSnapshot)

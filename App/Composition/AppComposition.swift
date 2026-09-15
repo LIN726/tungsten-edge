@@ -70,6 +70,9 @@ final class AppRuntime: ObservableObject {
     }
 
     private var launchSessions = LaunchSessionTokenRegistry<LaunchSession>()
+    /// `activateWhenAppears`' one pending request; the generation retires its timeout.
+    private var pendingAppearanceFind: (@MainActor (DockSnapshot) -> String?)?
+    private var appearanceGeneration: UInt64 = 0
 
     private let tracker: AppTracker
     private let displayTableProvider: @MainActor () -> WindowDisplayAttribution.Table
@@ -138,6 +141,8 @@ final class AppRuntime: ObservableObject {
         for held in heldActionsByWindowID.values { held.workItem.cancel() }
         heldActionsByWindowID.removeAll()
         recentMinimizeDispatchAtByWindowID.removeAll()
+        pendingAppearanceFind = nil
+        appearanceGeneration &+= 1
         stopLaunchSessions()
     }
 
@@ -169,6 +174,40 @@ final class AppRuntime: ObservableObject {
     func close(windowID: String) { trigger(.close(WindowID(rawValue: windowID))) }
     func quit(windowID: String) { trigger(.quit(WindowID(rawValue: windowID))) }
     func newWindow(windowID: String) { trigger(.newWindow(WindowID(rawValue: windowID))) }
+
+    /// Activates the window `find` picks as soon as the inventory shows it — for a window another app
+    /// opens on request without activating itself, since activating that app would also raise its
+    /// last-used window. If none shows up within `timeout` the request is simply dropped — never an
+    /// app-level activation: the window is on screen either way, and a loaded Finder can take
+    /// seconds to reach the inventory. A newer request replaces an older one.
+    func activateWhenAppears(timeout: TimeInterval, find: @escaping @MainActor (DockSnapshot) -> String?) {
+        appearanceGeneration &+= 1
+        pendingAppearanceFind = nil
+        if let windowID = find(snapshot) {
+            if Self.chipProbeEnabled { chipProbeLogger.info("appear-activate immediate windowID=\(windowID, privacy: .public)") }
+            activate(windowID: windowID)
+            return
+        }
+        let generation = appearanceGeneration
+        pendingAppearanceFind = find
+        pendingAppearanceStartedAt = Date()
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.appearanceGeneration == generation, self.pendingAppearanceFind != nil else { return }
+                self.pendingAppearanceFind = nil
+                if Self.chipProbeEnabled { self.chipProbeLogger.info("appear-activate dropped after \(Int(timeout * 1000), privacy: .public)ms") }
+            }
+        }
+    }
+
+    private var pendingAppearanceStartedAt = Date()
+
+    private func resolvePendingAppearance() {
+        guard let find = pendingAppearanceFind, let windowID = find(snapshot) else { return }
+        pendingAppearanceFind = nil
+        if Self.chipProbeEnabled { chipProbeLogger.info("appear-activate found windowID=\(windowID, privacy: .public) afterMs=\(Int(Date().timeIntervalSince(self.pendingAppearanceStartedAt) * 1000), privacy: .public)") }
+        activate(windowID: windowID)
+    }
 
     /// 跨屏投放的分派：真窗口卡 → 搬窗口；`app-*` 兜底卡 / 保留占位（没有窗口可搬）→ 改这个 app
     /// 「无窗口图标住哪块屏」的会话记忆（`AppTracker.noteNoWindowHome`），④ 下那张卡随即换条。
@@ -486,7 +525,7 @@ final class AppRuntime: ObservableObject {
         // 规划成收起（「收窗 1 后快点窗 2 收不起来」）。绝不覆盖已存在的乐观条目（用户动作
         // 优先于系统预测）。误预测由顶替清除自愈（真接手者被快照证实即顶掉本预测）。
         let onHandoffActivePrediction: ((WindowID) -> Void)? =
-            (request.kind == .minimizeWindow && Self.handoffActivePredictionEnabled)
+            ((request.kind == .minimizeWindow || request.kind == .closeWindow) && Self.handoffActivePredictionEnabled)
             ? { [weak self] windowID in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -931,6 +970,7 @@ final class AppRuntime: ObservableObject {
         reconcileOptimisticStates()
         reevaluateHeldActions()
         updateFeedbackTimer()
+        resolvePendingAppearance()
         if let startedAt {
             let ms = Int(Date().timeIntervalSince(startedAt) * 1000)
             debugState.setObservationStatusText(hasRequiredPermissions ? "实时 \(ms)ms" : "仅窗口列表")

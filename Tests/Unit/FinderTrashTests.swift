@@ -8,7 +8,8 @@ final class FinderTrashTests: XCTestCase {
             XCTAssertEqual(FinderAutomationStatus(osStatus: code), status)
             for trigger in TrashPermissionTrigger.allCases {
                 XCTAssertEqual(trigger.shouldAskUser(status: status),
-                               status == .notDetermined && (trigger == .ownDrop || trigger == .emptyCommand))
+                               status == .notDetermined
+                                   && (trigger == .ownDrop || trigger == .emptyCommand || trigger == .panelOpened))
             }
         }
     }
@@ -104,7 +105,7 @@ final class FinderTrashTests: XCTestCase {
         let known = TrashWindowLookup.titles(localizedName: nil)
         XCTAssertNil(TrashWindowLookup.actionWindowID(
             finderWindows: [entry("docs", "Documents", .front)], titles: known))
-        // The front Trash window wins, so a second click minimizes it.
+        // The front Trash window wins.
         XCTAssertEqual(TrashWindowLookup.actionWindowID(
             finderWindows: [entry("min", "废纸篓", .minimized), entry("vis", "Trash", .none),
                             entry("front", "废纸篓", .front)], titles: known), "front")
@@ -115,6 +116,21 @@ final class FinderTrashTests: XCTestCase {
         XCTAssertEqual(TrashWindowLookup.actionWindowID(
             finderWindows: [entry("min", "Corbeille", .minimized)],
             titles: TrashWindowLookup.titles(localizedName: "Corbeille")), "min")
+    }
+
+    func testListingParsesFinderURLsSortsAndTruncates() {
+        let listing = TrashListingPlan.build(urlStrings: [
+            "file:///Users/me/.Trash/b%20doc.pdf", "file:///Users/me/.Trash/Folder/",
+            "not a url", "file:///Users/me/.Trash/a.png"
+        ], limit: 2)
+        guard case let .loaded(items, hidden) = listing else { return XCTFail("\(listing)") }
+        XCTAssertEqual(items.map(\.name), ["a.png", "b doc.pdf"])
+        XCTAssertEqual(hidden, 1)
+        XCTAssertFalse(items[0].isDirectory)
+        XCTAssertEqual(TrashListingPlan.build(urlStrings: ["file:///Users/me/.Trash/Folder/"]),
+                       .loaded(items: [TrashItem(url: URL(string: "file:///Users/me/.Trash/Folder/")!,
+                                                 name: "Folder", isDirectory: true)], hiddenCount: 0))
+        XCTAssertEqual(TrashListingPlan.build(urlStrings: []), .loaded(items: [], hiddenCount: 0))
     }
 
     private func finderRecord(_ id: String, _ title: String, group: String? = nil,

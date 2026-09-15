@@ -14,10 +14,12 @@ enum FinderAutomationStatus: Equatable {
 }
 
 enum TrashPermissionTrigger: CaseIterable {
-    case launch, shown, appActivated, ownDrop, inAppTrash, emptyCommand
+    case launch, shown, appActivated, ownDrop, inAppTrash, emptyCommand, panelOpened
 
+    /// Only deliberate acts on the Trash may put up the automation prompt — never launch, show or
+    /// activation refreshes. Opening the popup counts: it is the user asking what is in there.
     func shouldAskUser(status: FinderAutomationStatus) -> Bool {
-        (self == .ownDrop || self == .emptyCommand) && status == .notDetermined
+        (self == .ownDrop || self == .emptyCommand || self == .panelOpened) && status == .notDetermined
     }
 }
 
@@ -28,6 +30,12 @@ enum FinderTrashEvent {
     static let empty: UInt32 = 0x656d7074
     static let trashProperty: UInt32 = 0x74727368
     static let itemClass: UInt32 = 0x636f626a
+    static let getData: UInt32 = 0x67657464
+    static let urlProperty: UInt32 = 0x7055524c
+    static let reveal: UInt32 = 0x6d766973
+    static let miscellaneous: UInt32 = 0x6d697363
+    /// `kAEAll`, the ordinal of `every item`.
+    static let absoluteAll: UInt32 = 0x616c6c20
     static let noConsentPrompt: UInt = 0x00020000
     static let countOptions: NSAppleEventDescriptor.SendOptions = [
         .waitForReply, .neverInteract, .init(rawValue: noConsentPrompt)
@@ -156,13 +164,56 @@ enum TrashWindowLookup {
         return finderTitles.union([localizedName])
     }
 
-    /// Prefers the front window (toggle then minimizes it), then a visible one, then a minimized one.
+    /// Prefers the front window (a click then closes it), then a visible one, then a minimized one.
     static func actionWindowID(finderWindows: [WindowMenuEntry], titles: Set<String>) -> String? {
         let matches = finderWindows.filter { titles.contains($0.title) }
         let chosen = matches.first { $0.marker == .front }
             ?? matches.first { $0.marker == .none }
             ?? matches.first
         return chosen?.actionWindowID
+    }
+
+    /// Reads the inventory snapshot only — no AX on the click path.
+    static func actionWindowID(snapshot: DockSnapshot, titles: Set<String>) -> String? {
+        actionWindowID(finderWindows: WindowListMenuPlan.entries(snapshot: snapshot,
+                                                                 bundleID: FinderTaskbarPolicy.bundleID,
+                                                                 fallbackTitle: ""),
+                       titles: titles)
+    }
+}
+
+/// One entry of the Trash popup, parsed from the file URL Finder reports for the item.
+struct TrashItem: Equatable, Hashable {
+    let url: URL
+    let name: String
+    let isDirectory: Bool
+}
+
+/// What the Trash popup shows. `.loaded` carries at most `TrashListingPlan.itemLimit` items and
+/// how many more Finder holds beyond them.
+enum TrashListing: Equatable {
+    case idle, loading
+    case loaded(items: [TrashItem], hiddenCount: Int)
+    case unavailable
+}
+
+enum TrashListingPlan {
+    /// The grid caps here; a line points at Finder for the rest.
+    static let itemLimit = 200
+
+    /// Finder answers `URL of every item of trash` with file URL strings; a folder's ends in "/".
+    /// Sorted by name the way the Trash window sorts, so the two agree.
+    static func build(urlStrings: [String], limit: Int = itemLimit) -> TrashListing {
+        var items: [TrashItem] = []
+        for string in urlStrings {
+            guard let url = URL(string: string), url.isFileURL else { continue }
+            let name = url.lastPathComponent
+            guard !name.isEmpty, name != "/" else { continue }
+            items.append(TrashItem(url: url, name: name, isDirectory: url.hasDirectoryPath))
+        }
+        items.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let hidden = max(0, items.count - limit)
+        return .loaded(items: Array(items.prefix(limit)), hiddenCount: hidden)
     }
 }
 

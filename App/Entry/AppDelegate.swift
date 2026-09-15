@@ -587,7 +587,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 最常用文件的计数账本：目录监视 + 激活重采样都挂在任务条运行期。
         DocumentUsageStore.shared.start()
         TrashStateStore.shared.setEnabled(settingsStore.showTrash)
-        TrashStateStore.shared.start()
+        TrashStateStore.shared.start(revealOpenedWindow: TrashStateStore.revealTrashWindow(runtime: runtime))
         trashSettingSubscription = settingsStore.$showTrash
             .removeDuplicates()
             .sink { enabled in TrashStateStore.shared.setEnabled(enabled) }

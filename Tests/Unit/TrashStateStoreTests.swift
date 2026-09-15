@@ -9,6 +9,9 @@ final class TrashStateStoreTests: XCTestCase {
         var empties: [(Bool, @MainActor (FinderTrashOutcome) -> Void)] = []
         var activations: [@MainActor () -> Void] = []
         var opens = 0
+        var reveals = 0
+        var lists: [@MainActor ([String]?) -> Void] = []
+        var revealed: [URL] = []
         var asks: [Bool] = []
         func permission(ask: Bool, completion: @escaping @MainActor (FinderAutomationStatus) -> Void) {
             asks.append(ask); permissions.append((ask, completion))
@@ -19,6 +22,8 @@ final class TrashStateStoreTests: XCTestCase {
         }
         func activateFinder(completion: @escaping @MainActor () -> Void) { activations.append(completion) }
         func openTrash() { opens += 1 }
+        func listItemURLs(completion: @escaping @MainActor ([String]?) -> Void) { lists.append(completion) }
+        func reveal(_ url: URL) { revealed.append(url) }
         func cancelPending() {}
     }
 
@@ -29,7 +34,7 @@ final class TrashStateStoreTests: XCTestCase {
             confirmEmpty: { completion in completion(confirm()) },
             beep: {}, notificationCenter: NotificationCenter())
         store.setEnabled(true)
-        store.start()
+        store.start(revealOpenedWindow: { client.reveals += 1 })
         addTeardownBlock { @MainActor in store.stop() }
         return store
     }
@@ -63,7 +68,7 @@ final class TrashStateStoreTests: XCTestCase {
             confirmEmpty: { answer = $0 },
             beep: {}, notificationCenter: NotificationCenter())
         store.setEnabled(true)
-        store.start()
+        store.start(revealOpenedWindow: { client.reveals += 1 })
         addTeardownBlock { @MainActor in store.stop() }
         initialize(client)
         store.refresh()
@@ -185,7 +190,39 @@ final class TrashStateStoreTests: XCTestCase {
         XCTAssertTrue(client.permissions[0].0)
         client.permissions.removeFirst().1(.denied)
         XCTAssertEqual(client.opens, 1)
+        // Finder opens it without activating, so the open must bring that window forward.
+        XCTAssertEqual(client.reveals, 1)
         XCTAssertTrue(client.empties.isEmpty)
+    }
+
+    func testPopupListingAsksOnceAndDeniedLeavesItUnavailable() {
+        let client = FakeClient()
+        let store = make(client)
+        client.permissions.removeFirst().1(.notDetermined)
+        store.loadItems()
+        XCTAssertEqual(store.listing, .loading)
+        client.permissions.removeFirst().1(.notDetermined)
+        XCTAssertTrue(client.permissions[0].0)
+        client.permissions.removeFirst().1(.granted)
+        client.lists.removeFirst()(["file:///Users/me/.Trash/x.txt"])
+        XCTAssertEqual(store.listing, .loaded(items: [TrashItem(url: URL(string: "file:///Users/me/.Trash/x.txt")!,
+                                                                name: "x.txt", isDirectory: false)], hiddenCount: 0))
+        XCTAssertEqual(store.status, .granted)
+        // A reveal brings the Trash window forward like an open does.
+        store.revealItem(URL(string: "file:///Users/me/.Trash/x.txt")!)
+        XCTAssertEqual(client.revealed.count, 1)
+        XCTAssertEqual(client.reveals, 1)
+        store.clearListing()
+        XCTAssertEqual(store.listing, .idle)
+        // The next open shows the last listing at once instead of 正在读取, then refreshes.
+        client.permissions.removeAll()
+        store.loadItems()
+        XCTAssertEqual(store.listing, .loaded(items: [TrashItem(url: URL(string: "file:///Users/me/.Trash/x.txt")!,
+                                                                name: "x.txt", isDirectory: false)], hiddenCount: 0))
+        // Denied: nothing is listed and the popup degrades.
+        client.permissions.removeFirst().1(.denied)
+        XCTAssertTrue(client.lists.isEmpty)
+        XCTAssertEqual(store.listing, .unavailable)
     }
 
     func testSuccessfulDropAsksAndOldReadCannotClearFullIcon() async {
