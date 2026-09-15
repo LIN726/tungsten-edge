@@ -212,13 +212,18 @@ final class TrashStateStoreTests: XCTestCase {
         store.revealItem(URL(string: "file:///Users/me/.Trash/x.txt")!)
         XCTAssertEqual(client.revealed.count, 1)
         XCTAssertEqual(client.reveals, 1)
+        let loaded = store.listing
         store.clearListing()
-        XCTAssertEqual(store.listing, .idle)
+        // Closed: the listing stays (the fading popup still renders it), but a mutation no longer
+        // asks Finder for it.
+        XCTAssertEqual(store.listing, loaded)
+        client.permissions.removeAll()
+        store.noteTrashedInApp()
+        XCTAssertTrue(client.lists.isEmpty)
         // The next open shows the last listing at once instead of 正在读取, then refreshes.
         client.permissions.removeAll()
         store.loadItems()
-        XCTAssertEqual(store.listing, .loaded(items: [TrashItem(url: URL(string: "file:///Users/me/.Trash/x.txt")!,
-                                                                name: "x.txt", isDirectory: false)], hiddenCount: 0))
+        XCTAssertEqual(store.listing, loaded)
         // Denied: nothing is listed and the popup degrades.
         client.permissions.removeFirst().1(.denied)
         XCTAssertTrue(client.lists.isEmpty)

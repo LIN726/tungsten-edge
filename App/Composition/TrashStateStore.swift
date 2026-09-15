@@ -18,12 +18,13 @@ final class TrashStateStore: ObservableObject {
     @Published private(set) var isFull = false
     @Published private(set) var status = FinderAutomationStatus.unavailable
     @Published private(set) var isEmptying = false
-    /// The popup's contents; `.idle` while no popup shows, so mutations only refresh an open one.
+    /// The popup's contents. Kept across closes: the next open shows it at once while Finder
+    /// answers again (a loaded Finder takes ~1s), and the fading-out popup keeps rendering it —
+    /// emptying it on close made the panel collapse to two cells mid-fade (owner: 残影).
     @Published private(set) var listing = TrashListing.idle
     private var listSequence: UInt64 = 0
-    /// The last loaded listing, shown at once on the next open while Finder answers again —
-    /// a loaded Finder takes ~1s, and the popup must not say 正在读取 on every open.
-    private var lastLoaded: TrashListing?
+    /// Whether the popup is showing, so mutations refresh only an open popup.
+    private var popupShowing = false
 
     private let client: FinderTrashClienting
     private let fileTrasher: @Sendable (URL) throws -> Void
@@ -89,7 +90,7 @@ final class TrashStateStore: ObservableObject {
         permissionSequence &+= 1
         listSequence &+= 1
         listing = .idle
-        lastLoaded = nil
+        popupShowing = false
         client.cancelPending()
         reducer.disabled()
         pending = nil
@@ -261,7 +262,7 @@ final class TrashStateStore: ObservableObject {
         let source = reducer.mutationEnded(id, successfulDirection: direction)
         publish()
         if let source { requestRead(source) }
-        if listing != .idle { loadItems() }
+        if popupShowing { loadItems() }
     }
 
     /// The popup's listing. Opening the popup is a deliberate act on the Trash, so a never-asked
@@ -273,7 +274,8 @@ final class TrashStateStore: ObservableObject {
         let life = lifetime
         listSequence &+= 1
         let sequence = listSequence
-        if case .loaded = listing {} else { listing = lastLoaded ?? .loading }
+        popupShowing = true
+        if case .loaded = listing {} else { listing = .loading }
         obtainPermission(trigger: .panelOpened) { [weak self] granted in
             guard let self, self.active, self.lifetime == life, self.listSequence == sequence else { return }
             guard granted else {
@@ -284,17 +286,16 @@ final class TrashStateStore: ObservableObject {
             self.client.listItemURLs { [weak self] urls in
                 guard let self, self.active, self.lifetime == life, self.listSequence == sequence else { return }
                 self.listing = urls.map { TrashListingPlan.build(urlStrings: $0) } ?? .unavailable
-                if case .loaded = self.listing { self.lastLoaded = self.listing }
                 self.requestRead(.external)
             }
         }
     }
 
-    /// The popup closed: drop the listing so later mutations do not keep asking Finder for it.
+    /// The popup closed: stop any load in flight and stop refreshing on mutations. The listing
+    /// itself stays for the fade-out and the next open.
     func clearListing() {
         listSequence &+= 1
-        if case .loaded = listing { lastLoaded = listing }
-        listing = .idle
+        popupShowing = false
     }
 
     /// Selects one item in the Trash window (Finder's `reveal`, non-activating) and brings that
