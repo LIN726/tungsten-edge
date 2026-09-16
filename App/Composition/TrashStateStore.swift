@@ -19,8 +19,8 @@ final class TrashStateStore: ObservableObject {
     @Published private(set) var status = FinderAutomationStatus.unavailable
     @Published private(set) var isEmptying = false
     /// The popup's contents. Kept across closes: the next open shows it at once while Finder
-    /// answers again (a loaded Finder takes ~1s), and the fading-out popup keeps rendering it —
-    /// emptying it on close made the panel collapse to two cells mid-fade (owner: 残影).
+    /// answers again (~1s when a dead network mount stalls it), and the fading-out popup keeps
+    /// rendering it — emptying it on close made the panel collapse to two cells mid-fade (owner: 残影).
     @Published private(set) var listing = TrashListing.idle
     private var listSequence: UInt64 = 0
     /// Whether the popup is showing, so mutations refresh only an open popup.
@@ -29,6 +29,11 @@ final class TrashStateStore: ObservableObject {
     private let client: FinderTrashClienting
     private let fileTrasher: @Sendable (URL) throws -> Void
     private let workQueue: DispatchQueue
+    private let changeStamp: @Sendable () -> TrashChangeStamp
+    /// The stamp the latest activation check saw, and the one in effect when the last count that
+    /// Finder actually answered was sent. Equal → Finder is not asked again.
+    private var latestStamp: TrashChangeStamp?
+    private var countedStamp: TrashChangeStamp?
     /// Asynchronous on purpose: the live alert must run its modal loop outside any main-queue
     /// block (see `TrashStateStore+Live.swift`), so the answer cannot be a return value.
     private let confirmEmpty: @MainActor (@escaping @MainActor (Bool) -> Void) -> Void
@@ -46,12 +51,13 @@ final class TrashStateStore: ObservableObject {
     private var revealOpenedWindow: @MainActor () -> Void = {}
 
     init(client: FinderTrashClienting, fileTrasher: @escaping @Sendable (URL) throws -> Void,
-         workQueue: DispatchQueue,
+         workQueue: DispatchQueue, changeStamp: @escaping @Sendable () -> TrashChangeStamp,
          confirmEmpty: @escaping @MainActor (@escaping @MainActor (Bool) -> Void) -> Void,
          beep: @escaping () -> Void, notificationCenter: NotificationCenter) {
         self.client = client
         self.fileTrasher = fileTrasher
         self.workQueue = workQueue
+        self.changeStamp = changeStamp
         self.confirmEmpty = confirmEmpty
         self.beep = beep
         self.notificationCenter = notificationCenter
@@ -67,7 +73,7 @@ final class TrashStateStore: ObservableObject {
         self.revealOpenedWindow = revealOpenedWindow
         observer = notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
                                                    object: nil, queue: .main) { [weak self] _ in
-            DispatchQueue.main.async { [weak self] in self?.refresh() }
+            DispatchQueue.main.async { [weak self] in self?.noteApplicationActivated() }
         }
         refresh()
     }
@@ -93,12 +99,34 @@ final class TrashStateStore: ObservableObject {
         popupShowing = false
         client.cancelPending()
         reducer.disabled()
+        latestStamp = nil
+        countedStamp = nil
         pending = nil
         isEmptying = false
         // Keep the physical read occupied until it returns, even across a restart.
     }
 
     func refresh() { requestRead(.external) }
+
+    /// App activation fires on every front switch — including the ones this app's own minimize
+    /// hand-offs cause — and a count parks Finder's main thread in file coordination (0.6–1.2s
+    /// with a dead network mount), so every AX call then in flight to Finder times out (-25204):
+    /// the Finder minimize/restore lag of 2026-09-16. Finder is therefore asked only when a Trash
+    /// directory's date moved since the last count it answered; a failed count leaves the gate open.
+    func noteApplicationActivated() {
+        guard active else { return }
+        let life = lifetime
+        let stamp = changeStamp
+        workQueue.async { [weak self] in
+            let current = stamp()
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.active, self.lifetime == life else { return }
+                self.latestStamp = current
+                guard current != self.countedStamp else { return }
+                self.requestRead(.external)
+            }
+        }
+    }
 
     private func requestRead(_ source: TrashRefreshSource) {
         guard active else { return }
@@ -114,6 +142,7 @@ final class TrashStateStore: ObservableObject {
         reading = request
         let life = lifetime
         let epoch = reducer.epoch
+        let stampAtSend = latestStamp
         client.permission(ask: false) { [weak self] permission in
             guard let self else { return }
             guard self.active, self.lifetime == life, self.reducer.epoch == epoch else {
@@ -129,6 +158,7 @@ final class TrashStateStore: ObservableObject {
             self.client.count { [weak self] outcome in
                 guard let self else { return }
                 if self.active, self.lifetime == life {
+                    if case .count = outcome { self.countedStamp = stampAtSend }
                     self.reducer.readReturned(epoch: epoch, source: source, status: permission, outcome: outcome)
                     self.publish()
                 }

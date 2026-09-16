@@ -5,6 +5,7 @@ extension TrashStateStore {
         client: FinderTrashClient(),
         fileTrasher: { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) },
         workQueue: AppRuntime.actionQueue,
+        changeStamp: { TrashChangeStamp.live() },
         confirmEmpty: { completion in
             // Run the modal loop from a run-loop block, never inside a main-queue block: CFRunLoop
             // does not service the main dispatch queue in a modal loop nested in one, so every
@@ -46,6 +47,26 @@ extension TrashStateStore {
             runtime.activate(windowID: windowID)
         } else {
             store.openTrash()
+        }
+    }
+}
+
+extension TrashChangeStamp {
+    /// The home Trash plus the current user's trash on every mounted local volume. Network volumes
+    /// are never touched: a `stat` on a dead NFS mount hangs for over 10s (2026-09-16).
+    static func live() -> TrashChangeStamp {
+        let fileManager = FileManager.default
+        var directories = [fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".Trash")]
+        let keys: [URLResourceKey] = [.volumeIsLocalKey, .volumeIsRootFileSystemKey]
+        let volumes = fileManager.mountedVolumeURLs(includingResourceValuesForKeys: keys,
+                                                    options: [.skipHiddenVolumes]) ?? []
+        for volume in volumes {
+            let values = try? volume.resourceValues(forKeys: Set(keys))
+            guard values?.volumeIsLocal == true, values?.volumeIsRootFileSystem != true else { continue }
+            directories.append(volume.appendingPathComponent(".Trashes/\(getuid())"))
+        }
+        return build(directories: directories) { directory in
+            (try? fileManager.attributesOfItem(atPath: directory.path))?[.modificationDate] as? Date
         }
     }
 }

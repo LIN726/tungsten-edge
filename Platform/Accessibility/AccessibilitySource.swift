@@ -483,8 +483,9 @@ struct AccessibilityWindowActionExecutor {
         return false
     }
 
-    /// A loaded Finder answers every AX call with `cannotComplete` for 100–400ms right after a front
-    /// switch (2026-09-15), and the handle's 100ms messaging timeout turns that into a silent no-op:
+    /// Finder answers every AX call with `cannotComplete` while its main thread sits in file
+    /// coordination (a Trash count on a dead network mount: up to ~1s, `Docs/05`), and the handle's
+    /// 100ms messaging timeout turns that into a silent no-op:
     /// the front was already handed off, the window stayed open. Only that error is retried, within
     /// a bounded budget; any other answer is final.
     func close(_ handle: WindowHandle) -> Bool {

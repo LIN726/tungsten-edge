@@ -84,6 +84,20 @@ enum FinderTrashReply {
     }
 }
 
+/// The Trash directories' modification dates, so an app activation asks Finder for a count only
+/// after something changed there. `~/.Trash` cannot be listed or opened without Full Disk Access,
+/// but `stat` on it is allowed and its date moves on every add, remove, put-back and empty. A
+/// per-volume trash whose date cannot be read is present by path alone (mount/unmount still shows).
+struct TrashChangeStamp: Equatable {
+    let marks: [String: Date?]
+
+    static func build(directories: [URL], modificationDate: (URL) -> Date?) -> TrashChangeStamp {
+        var marks: [String: Date?] = [:]
+        for directory in directories { marks.updateValue(modificationDate(directory), forKey: directory.path) }
+        return TrashChangeStamp(marks: marks)
+    }
+}
+
 enum TrashRefreshSource: Equatable {
     case external
     case postMutation(expectedFull: Bool)

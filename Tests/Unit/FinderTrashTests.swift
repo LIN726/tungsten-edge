@@ -14,6 +14,21 @@ final class FinderTrashTests: XCTestCase {
         }
     }
 
+    /// A directory without a readable date still counts by path, so mounting or unmounting a
+    /// volume changes the stamp even when its trash cannot be read.
+    func testChangeStampKeepsUnreadableDirectoriesByPath() {
+        let home = URL(fileURLWithPath: "/Users/x/.Trash")
+        let volume = URL(fileURLWithPath: "/Volumes/v/.Trashes/501")
+        let dates: [String: Date] = [home.path: Date(timeIntervalSince1970: 10)]
+        let stamp = TrashChangeStamp.build(directories: [home, volume]) { dates[$0.path] }
+        XCTAssertEqual(stamp.marks.count, 2)
+        XCTAssertEqual(stamp.marks[home.path], Date(timeIntervalSince1970: 10))
+        XCTAssertEqual(stamp.marks[volume.path], .some(nil))
+        XCTAssertEqual(stamp, TrashChangeStamp.build(directories: [home, volume]) { dates[$0.path] })
+        XCTAssertNotEqual(stamp, TrashChangeStamp.build(directories: [home]) { dates[$0.path] })
+        XCTAssertNotEqual(stamp, TrashChangeStamp.build(directories: [home, volume]) { _ in Date(timeIntervalSince1970: 11) })
+    }
+
     func testAllEventsWaitAndNeverPromptForConsent() {
         for options in [FinderTrashEvent.countOptions, FinderTrashEvent.emptyOptions,
                         FinderTrashEvent.emptyInteractiveOptions] {

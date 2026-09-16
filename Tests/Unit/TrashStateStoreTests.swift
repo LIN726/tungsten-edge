@@ -27,10 +27,17 @@ final class TrashStateStoreTests: XCTestCase {
         func cancelPending() {}
     }
 
+    /// A mutable stamp the store's `@Sendable` reader can see; tests move it to simulate a change.
+    private final class StampBox: @unchecked Sendable {
+        var value = TrashChangeStamp(marks: ["/trash": Date(timeIntervalSince1970: 1)])
+    }
+
     private func make(_ client: FakeClient, confirm: @escaping () -> Bool = { true },
-                      trasher: @escaping @Sendable (URL) throws -> Void = { _ in }) -> TrashStateStore {
+                      trasher: @escaping @Sendable (URL) throws -> Void = { _ in },
+                      stamps: StampBox = StampBox(),
+                      workQueue: DispatchQueue = DispatchQueue(label: "trash-tests", attributes: .concurrent)) -> TrashStateStore {
         let store = TrashStateStore(client: client, fileTrasher: trasher,
-            workQueue: DispatchQueue(label: "trash-tests", attributes: .concurrent),
+            workQueue: workQueue, changeStamp: { stamps.value },
             confirmEmpty: { completion in completion(confirm()) },
             beep: {}, notificationCenter: NotificationCenter())
         store.setEnabled(true)
@@ -64,7 +71,7 @@ final class TrashStateStoreTests: XCTestCase {
         let client = FakeClient()
         var answer: (@MainActor (Bool) -> Void)?
         let store = TrashStateStore(client: client, fileTrasher: { _ in },
-            workQueue: DispatchQueue(label: "trash-tests"),
+            workQueue: DispatchQueue(label: "trash-tests"), changeStamp: { StampBox().value },
             confirmEmpty: { answer = $0 },
             beep: {}, notificationCenter: NotificationCenter())
         store.setEnabled(true)
@@ -142,6 +149,39 @@ final class TrashStateStoreTests: XCTestCase {
         initialize(client)
         XCTAssertTrue(client.permissions.isEmpty)
         XCTAssertFalse(client.asks.contains(true))
+    }
+
+    /// Activation fires on every front switch, including the ones our own hand-offs cause, and a
+    /// count stalls Finder's main thread; so it asks Finder only after a Trash directory's date
+    /// moved since the last answered count, and a count Finder did not answer leaves the gate open.
+    func testActivationAsksFinderOnlyAfterTrashChanged() async {
+        let client = FakeClient()
+        let stamps = StampBox()
+        let queue = DispatchQueue(label: "trash-tests-serial")
+        let store = make(client, stamps: stamps, workQueue: queue)
+        initialize(client)
+        func activate() async {
+            store.noteApplicationActivated()
+            let settled = expectation(description: "Stamp compared on main")
+            queue.async { DispatchQueue.main.async { settled.fulfill() } }
+            await fulfillment(of: [settled], timeout: 3)
+        }
+        await activate()
+        XCTAssertEqual(client.permissions.count, 1, "no answered count carries a stamp yet")
+        initialize(client)
+        await activate()
+        await activate()
+        XCTAssertTrue(client.permissions.isEmpty, "unchanged Trash: Finder is not asked")
+        stamps.value = TrashChangeStamp(marks: ["/trash": Date(timeIntervalSince1970: 2)])
+        await activate()
+        XCTAssertEqual(client.permissions.count, 1)
+        client.permissions.removeFirst().1(.granted)
+        client.counts.removeFirst()(.failed(-1712))
+        await activate()
+        XCTAssertEqual(client.permissions.count, 1, "an unanswered count must not close the gate")
+        initialize(client)
+        await activate()
+        XCTAssertTrue(client.permissions.isEmpty)
     }
 
     func testDisabledCallbacksCannotChangePermissionOrSendFollowup() {
