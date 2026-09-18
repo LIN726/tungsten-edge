@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 // MARK: - Drawer Capsule Button
 
 struct DrawerCapsuleButton: View {
+    @Environment(\.isPanelHeightResizing) private var isPanelHeightResizing
     @EnvironmentObject var drawerStore: DrawerStore
     @EnvironmentObject var keptAppStore: KeptAppStore
     @EnvironmentObject var messagingStore: MessagingAppStore
@@ -49,11 +50,11 @@ struct DrawerCapsuleButton: View {
 
     /// 胶囊是**另一棵**长期存活的 NSHostingView 根视图，必须自己观察同一个 store，
     /// 否则换档时任务条变了、胶囊里的九宫格还停在旧尺寸。
-    private var dockScale: CGFloat { settingsStore.dockSize.scale }
+    private var dockScale: CGFloat { settingsStore.dockPanelHeight.scale }
 
     var body: some View {
         // 拖动时 hover 让位给拖入反馈：draggingPayload 非空则不弹（drag 优先）。
-        let showsHover = isHovering && dragController.draggingPayload == nil
+        let showsHover = !isPanelHeightResizing && isHovering && dragController.draggingPayload == nil
         return ZStack {
             DockPanelBackdrop(theme: theme,
                               cornerRadius: DockShape.panelCornerRadius * dockScale,

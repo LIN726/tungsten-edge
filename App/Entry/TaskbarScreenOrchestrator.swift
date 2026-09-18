@@ -195,6 +195,7 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
     func suspendAndRelease() {
         guard !isSuspended else { return }
         isSuspended = true
+        cancelInteractiveHeightResize()
         // 先回滚未提交的跨面板拖拽事务，再拆监视器；常驻的载体面板也要显式收掉。
         dragController.cancelDrag()
         dragController.closeCarrierSurfaces()
@@ -227,6 +228,7 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
     /// 按当前设置与屏集合建 / 拆单元。目标 key 列表没变就什么都不做（幂等，可在任何通知里调）。
     private func rebuildUnits(reason: String, connectedKeys: [String]) {
         guard started, !isSuspended else { return }
+        cancelInteractiveHeightResize()
         let desired = TaskbarDisplaySet.desiredUnitKeys(
             placement: settingsStore.taskbarScreenPlacement,
             connectedKeys: connectedKeys
@@ -278,9 +280,32 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
         coordinator.onAccessoryWillOpen = { [weak self] unit, kind in
             self?.closeAccessories(exceptFor: unit, opening: kind)
         }
+        coordinator.onInteractiveHeightResizeSession = { [weak self, weak coordinator] active in
+            guard let self else { return }
+            self.heightResizeOrigin = active ? coordinator : nil
+            self.units.forEach { $0.coordinator.setInteractiveHeightResizeActive(active) }
+        }
         coordinator.start()
         coordinator.setFullscreenIntentRouting(enabled: fullscreenIntentMonitor != nil)
+        // A unit created mid-drag (topology change is cancelled first, but a placement change
+        // is not) joins the session instead of animating its way through every tick.
+        if heightResizeOrigin != nil { coordinator.setInteractiveHeightResizeActive(true) }
+        coordinator.onInteractiveHeightResizeUpdate = { [weak self] in
+            self?.units.forEach { $0.coordinator.commitInteractivePanelHeight() }
+        }
         return Unit(key: key, coordinator: coordinator)
+    }
+
+    // MARK: - 高度拖动会话
+
+    /// The unit whose grip is being dragged; nil = no drag. Set from the unit's own callback so
+    /// a topology change, unit rebuild or suspension can end the drag through that unit (which
+    /// pops the grip's cursor) before the units are torn down.
+    private weak var heightResizeOrigin: PanelCoordinator?
+
+    private func cancelInteractiveHeightResize() {
+        heightResizeOrigin?.cancelInteractiveResize()
+        heightResizeOrigin = nil
     }
 
     private func unitContainingMouse() -> Unit? {
@@ -298,6 +323,7 @@ final class TaskbarScreenOrchestrator: NSObject, WindowLiftAvoidanceHost {
 
     @objc private func screenParametersChanged() {
         dragController.cancelDrag()   // 切屏/分辨率变 → 取消进行中的跨面板拖动，免得载体留在旧屏坐标
+        cancelInteractiveHeightResize()   // same for a height drag: its start point is in old screen coordinates
         // One ordered snapshot feeds the shared display table, the seed decision and the unit set in
         // turn — never re-read NSScreen in between.
         // With no seed controller the screen handling still runs to completion: the controller owns

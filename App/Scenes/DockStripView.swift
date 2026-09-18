@@ -4,6 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct DockStripView: View {
+    @Environment(\.isPanelHeightResizing) var isPanelHeightResizing
     @EnvironmentObject var runtime: AppRuntime
     @EnvironmentObject var drawerStore: DrawerStore
     @EnvironmentObject var messagingStore: MessagingAppStore
@@ -36,11 +37,11 @@ struct DockStripView: View {
 
     /// 当前尺寸档位派生的面板几何与缩放系数。**条内不写裸尺寸数字**——凡是随任务条一起
     /// 放大缩小的值都乘 `dockScale`；发丝线（分隔线宽、描边）保持 1pt 不缩。
-    private var metrics: PanelLayoutMetrics { settingsStore.dockSize.metrics }
-    var dockScale: CGFloat { settingsStore.dockSize.scale }
-    /// 任务条圆角。**玻璃态与毛玻璃态同一个值** —— 几何只有 `DockSize.metrics` /
-    /// `DockShape` 一个来源，换底板材质不改尺寸（否则四档缩放失效，`scale` 的定义
-    /// 就是 `panelHeight / 52`）。
+    private var metrics: PanelLayoutMetrics { settingsStore.dockPanelHeight.metrics }
+    var dockScale: CGFloat { settingsStore.dockPanelHeight.scale }
+    /// 任务条圆角。**玻璃态与毛玻璃态同一个值** —— 几何只有 `DockPanelHeight.metrics` /
+    /// `DockShape` 一个来源，换底板材质不改尺寸（否则高度缩放失效，`scale` 的定义
+    /// 就是 `panelHeight / 54`）。
     private var taskbarCornerRadius: CGFloat { Style.cornerRadius * dockScale }
     /// 悬停效果档位。条内每个 chip 都显式接收它（同 `dockScale`，漏传是编译错误）；
     /// 抽屉面板与抽屉入口胶囊有意不受它影响（owner 2026-08-02）。
@@ -67,6 +68,11 @@ struct DockStripView: View {
     var onWindowTitleTooltipEvent: (WindowTitleTooltipEvent) -> Void = { _ in }
     /// 右键任务条底板 → 弹钨极菜单（`StatusMenuController` 持有那个菜单）。
     var onRequestTaskbarMenu: (NSEvent, NSView) -> Void = { _, _ in }
+    /// Drag-to-resize on the bar's grip zones (end insets + divider gaps, the same zones the
+    /// background right-click claims). `PanelCoordinator` injects both; the defaults are the
+    /// correct omission for a strip with no panel behind it (the drag-carrier snapshot).
+    var onInteractiveResize: (StripResizeGripEvent) -> Void = { _ in }
+    var resizeGripController: StripResizeGripController? = nil
     /// 标签变长变短那一轮 SwiftUI 更新里通知面板开跟随窗，附上这次开始动的每个标签盒的**起始宽**
     /// （`[chipID: 旧标签盒宽]`，pt）；之后每帧的实时宽由 `onLabelBoxWidthTick` 报，面板据此算内容总宽
     /// （`PanelCoordinator.beginLabelWidthFollow(starting:)`）。默认空实现是正确的省略语义：不挂在面板上
@@ -240,6 +246,15 @@ struct DockStripView: View {
             //
             // overlay 与 background 一样都不影响父视图尺寸——任务条宽度靠 `fittingSize` 量，
             // 千万别改成 ZStack 的兄弟节点，那会把条撑宽。
+            // Drag-to-resize grip: same zones as the right-click host below (one predicate),
+            // claims only a plain left mouse-down there; same `.overlay` reasoning as the menu
+            // host. Mounted beneath it so the menu host stays topmost, though order is moot —
+            // each returns `nil` from `hitTest` for the other's event types.
+            .overlay(StripResizeGripHost(
+                shouldClaim: { taskbarMenuZoneClaims(atScreen: $0) },
+                onEvent: onInteractiveResize,
+                controller: resizeGripController
+            ))
             .overlay(NativeMenuHost(
                 popUpHandler: onRequestTaskbarMenu,
                 shouldClaim: { taskbarMenuZoneClaims(atScreen: $0) }
@@ -309,6 +324,8 @@ struct DockStripView: View {
         .background(StripPointerTracker { pointer in
             pointerBox.value = pointer
             refreshHoveredEntry(frames: stripHoverFrames, origin: stripRootScreenRect)
+            // Grip-zone hover for the ▲▼ glyph; rides the same ≤60Hz poll, `nil` on leave.
+            onInteractiveResize(.hover(pointer.flatMap { taskbarMenuZoneClaims(atScreen: $0) ? $0 : nil }))
             HoverTrace.pointer(x: pointer?.x ?? -1, chip: hoveredEntryID)
         })
         // 重击(触控板)/中键(鼠标) → 内容预览：本地事件监视器 → 命中反查（handleGesturePreview）。
@@ -360,6 +377,9 @@ struct DockStripView: View {
         // 就往上长一截的来源（见 `refreshHoveredEntry`）。
         .onChange(of: dragController.stripSlotCollapsed) { renderedCollapsed = $0 }
         .onChange(of: dragController.hoverGate) { _ in
+            refreshHoveredEntry(frames: stripHoverFrames, origin: stripRootScreenRect)
+        }
+        .onChange(of: isPanelHeightResizing) { _ in
             refreshHoveredEntry(frames: stripHoverFrames, origin: stripRootScreenRect)
         }
         // 拖动中消息 chip 的 app 从消息区消失（退出/外部 unmark/快照丢）→ 取消拖动，免得空位卡死。

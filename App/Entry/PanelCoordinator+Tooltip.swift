@@ -128,10 +128,11 @@ extension PanelCoordinator {
             panel = created
         }
 
-        // 气泡整颗随任务条档位缩放（owner 2026-08-17）。`DockSize.scale` 已经是中档归一的，
-        // 中档恒为 1.0 → 中档逐字保持实测的原生像素。档位切换走既有的 `beginDockSizeChange`
-        // 事务，它会先收掉气泡，所以这里不需要额外的失效处理。
-        let style = WindowTitleTooltipStyle(scale: settingsStore.dockSize.scale)
+        // The bubble scales with the bar height as a whole. `DockPanelHeight.scale` is already
+        // normalised to the native height (exactly 1.0 there → native pixels byte-for-byte).
+        // A height change goes through `tearDownForPanelHeightChange`, which dismisses the
+        // bubble first, so no extra invalidation is needed here.
+        let style = WindowTitleTooltipStyle(scale: settingsStore.dockPanelHeight.scale)
         let contentHost: ManualPanelHost
         if let hosting = windowTitleTooltipHosting, let existingHost = windowTitleTooltipHost {
             hosting.rootView = WindowTitleTooltipView(title: request.title, style: style,

@@ -54,7 +54,7 @@ struct ChipView: View {
     /// 没有一个检查 SwiftUI 调用点——缺的那个默认值就是回归测试本身（同 `scale` 那条铁律）。
     /// 完整标题走 `fullTitle`，只给 `.help()` 的系统 tooltip。
     let labelTitle: String
-    /// 档位系数（`DockSize.scale`）。**故意不给默认值**：消息区曾因为它有默认值 1.0 而静默漏传，
+    /// 高度系数（`DockPanelHeight.scale`）。**故意不给默认值**：消息区曾因为它有默认值 1.0 而静默漏传，
     /// 在非中档下渲染成中档尺寸（见 AGENTS《Taskbar Size Tiers》）。漏传必须是编译错误。
     let scale: CGFloat
     /// 悬停效果档位。**同样故意不给默认值**——漏传是编译错误，理由见上面 `scale` 那条。

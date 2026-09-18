@@ -21,7 +21,7 @@ struct LauncherChip: View {
     /// Runtime-owned launch session state. The chip only renders this state; it does
     /// not infer readiness from process state or own a second launch timeout.
     let isLaunching: Bool
-    /// 档位系数（条内传 `DockSize.scale`，抽屉恒定 0.7）。**故意不给默认值**——漏传必须是编译错误，
+    /// 高度系数（条内传 `DockPanelHeight.scale`，抽屉恒定 0.7）。**故意不给默认值**——漏传必须是编译错误，
     /// 见 AGENTS《Taskbar Size Tiers》。
     let scale: CGFloat
     /// 悬停效果档位。**同样故意不给默认值**——漏传必须是编译错误，理由同 `scale`。

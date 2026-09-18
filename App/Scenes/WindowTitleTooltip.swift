@@ -69,8 +69,8 @@ enum LabelWidthAnimation {
 /// （见 `PanelGeometry.windowTitleTooltipTargetFrame`），而屏幕坐标探针为了躲开按压缩放改量的是
 /// 整张卡的矩形，pill rect 只能由这些常量推出来。两处各写一份迟早对不上，理由同 `WindowTitleTextMetrics`。
 enum ChipPillMetrics {
-    /// 卡片总高（= 面板内容高，`DockSize` 中档基线）。
-    /// **必须等于 `DockSize.medium.panelHeight`**：卡撑满条高、上下不留空隙，
+    /// 卡片总高（= 面板内容高，`DockPanelHeight.native` 基线）。
+    /// **必须等于 `DockPanelHeight.native.points`**：卡撑满条高、上下不留空隙，
     /// 任务条空白区右键的判定就建立在「没有垂直空隙」上。2026-08-16 随中档 52→54 一起改。
     static let chipHeight: CGFloat = 54
     /// 药丸的布局盒高度。**悬停时不再变**（2026-08-16：应用名挪进了图标上方的气泡，
@@ -541,8 +541,8 @@ enum WindowTitleTooltipEvent: Equatable {
 /// 外推到 0 应在 7.1pt 处，实际 6.5pt 就收——**差的那截就是圆头**（owner 说的「更圆润」）。
 ///
 /// **整颗随任务条档位缩放**（owner 2026-08-17）：上表是**中档**的值，其余档位整体乘
-/// `DockSize.scale`。系数用现成的 `DockSize.scale` 就对——它已经是「中档归一」
-/// （`panelHeight / DockSize.medium.panelHeight`），中档恒等于 1.0，所以中档这一列
+/// `DockPanelHeight.scale`。系数用现成的 `DockPanelHeight.scale` 就对——它已经是「原生高度归一」
+/// （`points / DockPanelHeight.native.points`），54pt 时恒等于 1.0，所以那一列
 /// 逐字保持实测原值。别再另算一个系数，更别拿条高除以某个字面量。
 struct WindowTitleTooltipStyle: Equatable {
     /// 档位系数（中档 = 1）。

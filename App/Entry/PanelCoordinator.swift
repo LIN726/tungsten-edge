@@ -24,9 +24,10 @@ enum PopoverAnimation {
 
 @MainActor
 final class PanelCoordinator: NSObject {
-    /// 面板几何随尺寸档位变，所以这些**不能再是 static**：换档时要跟着 store 走。
-    /// `shadowPadding` 例外——它固定 20，视图侧（抽屉、两个弹窗）继续静态引用。
-    var layoutMetrics: PanelLayoutMetrics { settingsStore.dockSize.metrics }
+    /// Panel geometry follows the user's bar height, so these are **instance** properties that
+    /// read the store; only `shadowPadding` stays static (fixed 20, referenced by the drawer
+    /// and both popups).
+    var layoutMetrics: PanelLayoutMetrics { settingsStore.dockPanelHeight.metrics }
     var panelHeight: CGFloat { layoutMetrics.panelHeight }
     var windowHeight: CGFloat { layoutMetrics.windowHeight }
     var capsuleWidth: CGFloat { layoutMetrics.capsuleWidth }
@@ -66,7 +67,7 @@ final class PanelCoordinator: NSObject {
     static let panelLevelOverride: NSWindow.Level? = DebugSwitch.panelLevel.value().flatMap(Int.init).map { NSWindow.Level(rawValue: $0) }
 
     var taskbarPlateCornerRadius: CGFloat {
-        DockShape.panelCornerRadius * settingsStore.dockSize.scale
+        DockShape.panelCornerRadius * settingsStore.dockPanelHeight.scale
     }
     static let shadowPadding: CGFloat = PanelLayoutMetrics.shadowPadding
 
@@ -186,9 +187,30 @@ final class PanelCoordinator: NSObject {
     var displayTopologySubscription: AnyCancellable?
     var showShelfSubscription: AnyCancellable?
     var showTrashSubscription: AnyCancellable?
-    var dockSizeSubscription: AnyCancellable?
-    /// 换档事务代次：吞掉换档过程中被其它路径排队的动画布局（见 beginDockSizeChange）。
-    var dockSizeChangeGeneration: UInt64 = 0
+    var dockPanelHeightSubscription: AnyCancellable?
+    /// Height-change transaction generation: swallows animated relayouts other paths queue
+    /// while a height change is in flight (see `beginPanelHeightChange`).
+    var panelHeightChangeGeneration: UInt64 = 0
+    /// The drag session when **this** unit's grip is being dragged; nil on every other unit.
+    var interactiveResize: DockHeightDragSession?
+    /// True on **every** unit while any unit's grip is being dragged (orchestrator broadcast):
+    /// the height is shared, so every bar is mid-transaction. Gates animated layouts and the
+    /// label-width follow; see `setInteractiveHeightResizeActive`.
+    var interactiveHeightResizeActive = false
+    let heightResizePresentation = PanelHeightResizePresentation()
+    /// Bar height the window-lift context reports while a drag is active. Frozen at drag start
+    /// so the lift controller's context set stays equal tick to tick (a changed set restores
+    /// every lifted window and re-lifts ≤0.2s later — several times per second during a drag).
+    var liftContextPanelHeightOverride: CGFloat?
+    /// This unit's grip began (`true`) / ended (`false`) a drag. The orchestrator fans it out to
+    /// every unit and remembers the origin so a topology change can end the drag cleanly.
+    var onInteractiveHeightResizeSession: ((Bool) -> Void)?
+    var onInteractiveHeightResizeUpdate: (() -> Void)?
+    /// Handle into the strip's grip view for `cancelInteractiveResize()`.
+    let resizeGripController = StripResizeGripController()
+    /// The ▲▼ glyph panel that stands in for the system cursor (`PanelCoordinator+ResizeCursor`).
+    var resizeCursorPanel: NSPanel?
+    var resizeCursorHost: ManualPanelHost?
     /// 抽屉拖回任务条·"松手才变长"：转正进行中冻结任务条宽度，转正态结束（松手落定 / 拖出还原）再 relayout。
     var stripSlotCollapseSubscription: AnyCancellable?
     var springOpenTimer: Timer?
@@ -396,6 +418,8 @@ final class PanelCoordinator: NSObject {
     func tearDown() {
         guard !isSuspendedForPermissionLoss else { return }
         isSuspendedForPermissionLoss = true
+        cancelInteractiveResize()
+        tearDownResizeCursor()
         fullscreenIntentRoutingEnabled = false
         if let transaction = fullscreenIntentTransaction {
             cancelFullscreenIntent(generation: transaction.generation, reason: "teardown")
@@ -463,9 +487,11 @@ final class PanelCoordinator: NSObject {
         let geometry = WindowLiftAvoidance.Geometry(
             screenFrame: screen.frame,
             visibleFrame: screen.visibleFrame,
+            // Visibility guards above stay live (a hidden or unplugged bar leaves the set);
+            // only the height is frozen during a drag, see `liftContextPanelHeightOverride`.
             taskbarTop: screen.frame.minY
                 + layoutMetrics.bottomGap
-                + layoutMetrics.panelHeight
+                + (liftContextPanelHeightOverride ?? layoutMetrics.panelHeight)
         )
         return WindowLiftAvoidanceContext(
             geometry: geometry,

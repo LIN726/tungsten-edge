@@ -124,8 +124,8 @@ final class DockLiquidGlassConfigurationTests: XCTestCase {
         }
     }
 
-    /// 背景窗口 = 内容窗口减掉 20pt 阴影透明边后的可视底板，高度由 `DockSize.metrics` 决定
-    /// （92 − 2×20 = 52 = 中档面板高），**不再有玻璃自带的第二套高度**。
+    /// 背景窗口 = 内容窗口减掉 20pt 阴影透明边后的可视底板，高度由 `DockPanelHeight.metrics` 决定
+    /// （92 − 2×20 = 52 是旧中档面板高，这里只是个几何样本），**不再有玻璃自带的第二套高度**。
     func testBackgroundFrameIsTheVisiblePlateInsideTheShadowPadding() {
         XCTAssertEqual(
             DockLiquidGlassPanelGeometry.backgroundFrame(

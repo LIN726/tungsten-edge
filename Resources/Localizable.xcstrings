@@ -1307,22 +1307,6 @@
         }
       }
     },
-    "Extra Large": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "特大"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Extra Large"
-          }
-        }
-      }
-    },
     "Feature Suggestion": {
       "comment": "设置窗口 · 反馈 · 类型单选",
       "localizations": {
@@ -1804,22 +1788,6 @@
         }
       }
     },
-    "Large": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "大"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Large"
-          }
-        }
-      }
-    },
     "Later": {
       "localizations": {
         "zh-Hans": {
@@ -1881,22 +1849,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Licensing opens with version 1.0. Tungsten Edge is completely free until then, and founding users who have confirmed their email will receive a permanent free license key."
-          }
-        }
-      }
-    },
-    "Medium": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Medium"
           }
         }
       }
@@ -3243,22 +3195,6 @@
         }
       }
     },
-    "Small": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "小"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Small"
-          }
-        }
-      }
-    },
     "Some items can’t be accessed. Allow Tungsten Edge to access their folder in your Mac’s privacy settings.": {
       "localizations": {
         "zh-Hans": {
@@ -3419,22 +3355,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Taskbar"
-          }
-        }
-      }
-    },
-    "Taskbar Size": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock 栏大小"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Taskbar Size"
           }
         }
       }

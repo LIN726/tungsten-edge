@@ -9,8 +9,8 @@ enum DockLiquidGlassRenderPath: Equatable {
 /// 液态玻璃底板的可调参数。
 ///
 /// **这里只放「玻璃这块底板怎么画」，不放几何。** 面板高度、圆角、离屏底距一律来自
-/// `DockSize.metrics` 与 `DockShape.panelCornerRadius`（`AGENTS.md`：几何的唯一来源）——
-/// 玻璃自带第二套尺寸会让四档缩放失效，因为 `scale` 的定义本身就是 `panelHeight / 52`。
+/// `DockPanelHeight.metrics` 与 `DockShape.panelCornerRadius`（`AGENTS.md`：几何的唯一来源）——
+/// 玻璃自带第二套尺寸会让高度缩放失效，因为 `scale` 的定义本身就是 `panelHeight / 54`。
 ///
 /// **也不放阴影。** 落地阴影由 SwiftUI 侧的 `.dockShadow(theme.stripShadow)` 画在内容窗口的
 /// 20pt 透明边里；曾经试过改画到背景窗口的图层上，但那个窗口的 frame 正好等于底板本身，

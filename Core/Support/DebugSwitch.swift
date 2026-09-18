@@ -65,6 +65,8 @@ enum DebugSwitch: String, CaseIterable, Sendable {
     case hoverMonitorLean = "DOCK_HOVER_MONITOR_LEAN"
     /// 任务条整条一块的指针轮询
     case stripHoverPoll = "DOCK_STRIP_HOVER_POLL"
+    /// 拖动调高时藏掉系统光标、自绘 ▲▼ 面板；=0 不藏也不画
+    case resizeCursor = "DOCK_RESIZE_CURSOR"
     /// 按下 chip 的即时按压反馈
     case chipPressDown = "DOCK_CHIP_PRESS_DOWN"
     /// 卡片标签对反复横跳的窗口标题的跟随抑制（WindowTitleSettle）
@@ -156,7 +158,7 @@ enum DebugSwitch: String, CaseIterable, Sendable {
              .handoffActivePrediction, .staleActiveGuard, .dragLanding, .liquidGlass,
              .spaceIntent, .fullscreenIntent, .fullscreenSlsVerdict, .spaceMembershipRepair,
              .overlaySpace, .scrollReverser, .windowLift, .windowLiftAnim,
-             .menuHoverSuspend, .hoverMonitorLean, .stripHoverPoll, .chipPressDown, .titleSettle:
+             .menuHoverSuspend, .hoverMonitorLean, .stripHoverPoll, .resizeCursor, .chipPressDown, .titleSettle:
             return .killSwitch
         case .displayTrace, .launchTrace, .chipProbe, .clickTrace,
              .hoverTrace, .edgehoverTrace, .stripWheelTrace, .chipAnimTrace, .labelProbe,

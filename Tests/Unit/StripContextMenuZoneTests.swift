@@ -79,7 +79,7 @@ final class StripContextMenuZoneTests: XCTestCase {
     /// 而阈值还停在 12pt —— 那会让分割线那道缝也认不出来，整条任务条右键失效。
     /// 就是这条测试拦下来的。
     func testThresholdSeparatesBothGapsAtEveryTier() {
-        for scale in DockSize.allCases.map(\.scale) {
+        for scale in [40, 54, 80].map({ DockPanelHeight(clamping: $0).scale }) {
             let plainGap: CGFloat = 2 * scale
             let dividerGap: CGFloat = (2 + 5 + 2) * scale
             let threshold: CGFloat = StripContextMenuZone.defaultMinimumGapWidth * scale

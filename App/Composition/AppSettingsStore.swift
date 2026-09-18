@@ -80,7 +80,7 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var showShelf: Bool
     @Published private(set) var showTrash: Bool
     /// 任务条尺寸档位。面板几何与条内所有 chip 尺寸都由它派生。
-    @Published private(set) var dockSize: DockSize
+    @Published private(set) var dockPanelHeight: DockPanelHeight
     /// 悬停效果档位。只影响条内 chip 的悬停视觉，静息布局逐像素不变（因此无需 relayout）。
     @Published private(set) var hoverStyle: HoverStyle
     /// 最大化窗口避让任务条（菜单「最大化窗口避开任务条」）。
@@ -182,7 +182,7 @@ final class AppSettingsStore: ObservableObject {
             if let pinnedSelection {
                 taskbarScreenPlacement = .pinned(pinnedSelection)
             } else {
-                // pinned 但选择缺失/坏 → 回退并立刻重写 mode 键（对齐 dockSize 的坏值即重写惯例）。
+                // pinned 但选择缺失/坏 → 回退并立刻重写 mode 键（对齐 dockPanelHeight 的坏值即重写惯例）。
                 taskbarScreenPlacement = .followMouse
                 defaults.set(TaskbarScreenMode.followMouse.rawValue, forKey: Keys.taskbarScreenMode)
             }
@@ -191,9 +191,11 @@ final class AppSettingsStore: ObservableObject {
             // 降级不毁掉用户在新版本里做的选择。
             taskbarScreenPlacement = .followMouse
         }
-        // 坏值（手改过、旧版本残留、类型不对）一律回退中档并**立刻重写**，
-        // 否则每次启动都要重新走一遍回退，且 UI 上勾选的档位和存的值对不上。
-        dockSize = DockSize(rawValue: defaults.string(forKey: Keys.dockSize) ?? "") ?? .default
+        // Bar height: the new key wins; a user upgrading from the four-tier releases carries only
+        // the legacy `dockSize` string, which is mapped once (the legacy key is read here and
+        // never written or removed, so a rollback still finds it). Corrupt values fall back to
+        // the native height and are rewritten immediately, like every other key here.
+        dockPanelHeight = Self.storedDockPanelHeight(defaults: defaults)
         hoverStyle = HoverStyle(rawValue: defaults.string(forKey: Keys.hoverStyle) ?? "") ?? .default
         let nativeDelay = Self.sanitizedStoredDelay(
             defaults.object(forKey: Keys.nativeDockAutoHideDelay),
@@ -221,7 +223,7 @@ final class AppSettingsStore: ObservableObject {
         } else {
             lastEnabledEdgeAutoHideDelay = edgeDelay
         }
-        defaults.set(dockSize.rawValue, forKey: Keys.dockSize)
+        defaults.set(Double(dockPanelHeight.points), forKey: Keys.dockPanelHeight)
         defaults.set(hoverStyle.rawValue, forKey: Keys.hoverStyle)
         defaults.set(nativeDelay, forKey: Keys.nativeDockAutoHideDelay)
         defaults.set(lastEnabledNativeDockAutoHideDelay, forKey: Keys.nativeDockAutoHideLastEnabledDelay)
@@ -229,10 +231,12 @@ final class AppSettingsStore: ObservableObject {
         defaults.set(lastEnabledEdgeAutoHideDelay, forKey: Keys.edgeAutoHideLastEnabledDelay)
     }
 
-    func setDockSize(_ value: DockSize) {
-        guard dockSize != value else { return }
-        dockSize = value
-        defaults.set(value.rawValue, forKey: Keys.dockSize)
+    /// Called on every accepted tick of a height drag (the drag decision already dedupes to
+    /// whole points, so a tick that changes nothing never reaches the publisher or the disk).
+    func setDockPanelHeight(_ value: DockPanelHeight) {
+        guard dockPanelHeight != value else { return }
+        dockPanelHeight = value
+        defaults.set(Double(value.points), forKey: Keys.dockPanelHeight)
     }
 
     /// 只应由 `SettingsCoordinator.applyEdgeToggleShortcut` 在**注册成功后**调用（见属性注释）。
@@ -477,6 +481,17 @@ final class AppSettingsStore: ObservableObject {
         DefaultsValueParsing.finiteNumericValue(value)
     }
 
+    private static func storedDockPanelHeight(defaults: UserDefaults) -> DockPanelHeight {
+        if let stored = storedNumericValue(defaults.object(forKey: Keys.dockPanelHeight)) {
+            return DockPanelHeight(clamping: CGFloat(stored))
+        }
+        if let legacy = defaults.string(forKey: Keys.dockSize),
+           let migrated = DockPanelHeight.migratingLegacyTier(rawValue: legacy) {
+            return migrated
+        }
+        return .default
+    }
+
     private static func migrateLegacyEnabledKey(defaults: UserDefaults, enabledKey: String, delayKey: String) {
         if let storedEnabled = defaults.object(forKey: enabledKey) as? Bool, storedEnabled == false {
             defaults.set(neverHideDelay, forKey: delayKey)
@@ -490,6 +505,9 @@ private enum Keys {
     static let showShelf = "com.tungsten.edge.showShelf"
     // Never read the retired com.tungsten.edge.trash.visible key.
     static let showTrash = "com.tungsten.edge.showTrash"
+    /// Continuous bar height in points (since the drag-to-resize release).
+    static let dockPanelHeight = "com.tungsten.edge.dockPanelHeight"
+    /// Legacy four-tier raw string. **Read once for migration, never written or removed.**
     static let dockSize = "com.tungsten.edge.dockSize"
     static let hoverStyle = "com.tungsten.edge.hoverStyle"
         // `com.tungsten.edge.appearanceMode` 已随深色模式一起删除（owner 2026-08-16）。
