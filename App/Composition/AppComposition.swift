@@ -585,9 +585,32 @@ final class AppRuntime: ObservableObject {
             return false
         }
 
+        let declaresNoWindow = launchTarget.declaresNoWindow
+        // Already running as a menu-bar / background process: the gate could only release
+        // on policy grounds after the 1.5s settling floor, so a session would just bounce
+        // the chip and swallow taps for that long on every click (LaunchOS, 2026-09-18).
+        // The system Dock bounces only on a real launch; forward the reopen and stop.
+        if launchSessions.entry(for: bundleID) == nil,
+           let running = Self.settledNonRegularProcess(
+               bundleID: bundleID,
+               bundleDeclaresNoWindow: declaresNoWindow
+           ) {
+            traceLaunch(
+                "REOPEN bid=\(bundleID) pid=\(running.processIdentifier) "
+                    + "policy=\(Self.activationPolicyText(running.activationPolicy)) "
+                    + "target=\(Self.traceValue(AppLaunchTargetDecision.canonicalPath(launchTarget.url))) "
+                    + "reason=running-non-regular"
+            )
+            NSWorkspace.shared.openApplication(
+                at: launchTarget.url,
+                configuration: AppLaunchOpenConfiguration.make(),
+                completionHandler: nil
+            )
+            return true
+        }
+
         let startedAt = ProcessInfo.processInfo.systemUptime
         let baseline = realWindowIdentities(in: snapshot, bundleID: bundleID)
-        let declaresNoWindow = launchTarget.declaresNoWindow
         guard let token = launchSessions.begin(bundleID: bundleID, makeValue: { token in
             LaunchSession(
                 bundleID: bundleID,
@@ -840,6 +863,22 @@ final class AppRuntime: ObservableObject {
             startTimeSec: Int64(startTime.tv_sec),
             startTimeUsec: Int64(startTime.tv_usec)
         )
+    }
+
+    /// The live same-bundle process, if any, whose policy already says "nothing to wait
+    /// for" (see `LaunchGateDecision.runningProcessNeedsNoSession`).
+    private static func settledNonRegularProcess(
+        bundleID: String,
+        bundleDeclaresNoWindow: Bool
+    ) -> NSRunningApplication? {
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first { app in
+            ProcessLiveness.isAlive(pid: app.processIdentifier)
+                && LaunchGateDecision.runningProcessNeedsNoSession(
+                    activationPolicy: launchActivationPolicy(app.activationPolicy),
+                    isFinishedLaunching: app.isFinishedLaunching,
+                    bundleDeclaresNoWindow: bundleDeclaresNoWindow
+                )
+        }
     }
 
     private static func launchActivationPolicy(
