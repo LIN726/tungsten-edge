@@ -17,7 +17,10 @@ struct DockGlassBackdrop: View {
 
     var body: some View {
         Group {
-            if #available(macOS 26.0, *), usesLiquidGlass {
+            if #available(macOS 26.0, *), usesLiquidGlass, let variant = DockGlassPresentation.activeSystemVariant {
+                DockSystemGlassVariantPlate(cornerRadius: cornerRadius, variant: variant)
+                    .allowsHitTesting(false)
+            } else if #available(macOS 26.0, *), usesLiquidGlass {
                 DockLiquidGlassPlate(
                     cornerRadius: cornerRadius,
                     configuration: DockGlassPresentation.configuration
@@ -62,8 +65,11 @@ struct DockPanelBackdrop: View {
                           cornerRadius: cornerRadius,
                           saturation: theme.effectiveBackdropSaturation,
                           thicknessEnabled: theme.drawsEffectiveThickness)
-            .padding(-2)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .padding(-DockLiquidGlassConfiguration.backdropOutset(
+                usesLiquidGlass: usesLiquidGlass,
+                usesSystemVariant: DockGlassPresentation.usesSystemVariant))
+            .dockBackdropClip(cornerRadius: cornerRadius,
+                              skip: usesLiquidGlass && DockGlassPresentation.usesSystemVariant)
             .ignoresSafeArea()
     }
 }
@@ -94,7 +100,8 @@ extension View {
                 .strokeBorder(style, lineWidth: strokeWidth)
         }
         .overlay {
-            if DockPanelRimPlan.glassRimVisible(usesLiquidGlass: usesLiquidGlass) {
+            if DockPanelRimPlan.glassRimVisible(usesLiquidGlass: usesLiquidGlass,
+                                                usesSystemVariant: DockGlassPresentation.usesSystemVariant) {
                 DockGlassRim(cornerRadius: cornerRadius, configuration: configuration)
             }
         }
@@ -172,8 +179,25 @@ private struct DockGlassRim: View {
     }
 }
 
+private extension View {
+    /// The variant plate clips itself (circular corners); our continuous-corner clip at the same
+    /// radius would shave its rim at the corners.
+    @ViewBuilder
+    func dockBackdropClip(cornerRadius: CGFloat, skip: Bool) -> some View {
+        if skip { self } else { clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)) }
+    }
+}
+
 enum DockGlassPresentation {
     static let configuration = DockLiquidGlassConfiguration.resolve()
+
+    /// The system variant in effect, or `nil` when it is switched off or the private selector is gone.
+    static let activeSystemVariant: Int? = {
+        guard let variant = configuration.systemVariant, TEDockGlassSupportsSystemVariant() else { return nil }
+        return variant
+    }()
+
+    static var usesSystemVariant: Bool { activeSystemVariant != nil }
 
     /// 能不能给任务条建玻璃合成。三道门：系统 ≥ 26、开关打开、SkyLight 的两个符号都取到。
     static var shouldAttemptTaskbarComposite: Bool {
@@ -196,7 +220,8 @@ enum DockGlassPresentation {
             let rim = "peak=\(c.borderPeakOpacity) edge=\(c.borderEdgeLevel) "
                 + "cut=\(c.borderCornerCut) spread=\(c.borderCornerSpread) w=\(c.borderLineWidth)"
             print("[glass] taskbar composite active, clearTint=\(c.clearTintOpacity), rim(\(rim)), "
-                + "background=\(c.backgroundMaterialOpacity), windowBlur=\(c.windowBlurRadius)")
+                + "background=\(c.backgroundMaterialOpacity), windowBlur=\(c.windowBlurRadius), "
+                + "systemVariant=\(activeSystemVariant.map(String.init) ?? "off")")
         } else if #available(macOS 26.0, *) {
             print("[glass] composite unavailable; using NSVisualEffectView")
         } else {
@@ -205,7 +230,31 @@ enum DockGlassPresentation {
     }
 }
 
-/// 玻璃底板本体。五个悬浮面板共用（探路期只有任务条接了）。
+/// The plate rendered by AppKit's `NSGlassEffectView` with a private system variant (the Dock's).
+@available(macOS 26.0, *)
+private struct DockSystemGlassVariantPlate: NSViewRepresentable {
+    let cornerRadius: CGFloat
+    let variant: Int
+
+    func makeNSView(context: Context) -> NSGlassEffectView {
+        let view = NSGlassEffectView()
+        view.contentView = NSView()
+        apply(to: view)
+        return view
+    }
+
+    // SwiftUI re-runs update, never re-creates the view — the radius follows drag-to-resize here.
+    func updateNSView(_ view: NSGlassEffectView, context: Context) {
+        apply(to: view)
+    }
+
+    private func apply(to view: NSGlassEffectView) {
+        view.cornerRadius = cornerRadius
+        _ = TEDockGlassSetSystemVariant(view, variant)
+    }
+}
+
+/// SwiftUI 玻璃底板（系统变体不可用或被关掉时的回退）。五个悬浮面板共用（探路期只有任务条接了）。
 @available(macOS 26.0, *)
 private struct DockLiquidGlassPlate: View {
     let cornerRadius: CGFloat

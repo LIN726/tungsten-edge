@@ -24,6 +24,7 @@ final class DockLiquidGlassConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.windowBlurRadius, 0, "窗口级模糊不跟圆角走，会在四角糊出方块；通透度不靠它")
         XCTAssertEqual(configuration.contentInset, 4)
         XCTAssertEqual(configuration.backgroundPlateOpacity, 0.001)
+        XCTAssertEqual(configuration.systemVariant, 3, "the accepted plate is the Dock's own glass material")
         XCTAssertEqual(
             configuration.renderPath(isGlassAPIAvailable: true, isCompositeAvailable: true),
             .layeredTaskbar
@@ -182,5 +183,26 @@ final class DockLiquidGlassConfigurationTests: XCTestCase {
 
     private func resolve(_ environment: [String: String]) -> DockLiquidGlassConfiguration {
         DockLiquidGlassConfiguration.resolve(environment: environment)
+    }
+
+    func testSystemVariantParsesOffAndFallsBackToTheDockMaterial() {
+        XCTAssertNil(resolve(["DOCK_LIQUID_GLASS_SYSTEM_VARIANT": " off "]).systemVariant)
+        XCTAssertEqual(resolve(["DOCK_LIQUID_GLASS_SYSTEM_VARIANT": "0"]).systemVariant, 0)
+        XCTAssertEqual(resolve(["DOCK_LIQUID_GLASS_SYSTEM_VARIANT": "40"]).systemVariant, 40)
+        for bad in ["", "abc", "-1", "41", "3.5"] {
+            XCTAssertEqual(resolve(["DOCK_LIQUID_GLASS_SYSTEM_VARIANT": bad]).systemVariant, 3, bad)
+        }
+    }
+
+    /// The variant plate draws its own rim and casts no shadow, so the 2pt outset (which clips
+    /// that rim) and the strip shadow go — but only when glass and the variant are both live.
+    func testOutsetAndStripShadowFollowTheSystemVariant() {
+        typealias C = DockLiquidGlassConfiguration
+        XCTAssertEqual(C.backdropOutset(usesLiquidGlass: true, usesSystemVariant: true), 0)
+        XCTAssertFalse(C.stripShadowVisible(usesLiquidGlass: true, usesSystemVariant: true))
+        for (glass, variant) in [(true, false), (false, true), (false, false)] {
+            XCTAssertEqual(C.backdropOutset(usesLiquidGlass: glass, usesSystemVariant: variant), 2)
+            XCTAssertTrue(C.stripShadowVisible(usesLiquidGlass: glass, usesSystemVariant: variant))
+        }
     }
 }

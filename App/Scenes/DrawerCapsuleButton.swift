@@ -101,7 +101,10 @@ struct DrawerCapsuleButton: View {
         .scaleEffect(dragController.isOverStashZone ? 1.04 : 1.0)
         .dockGlow(theme.capsuleStashGlow, radius: 5, active: dragController.isOverStashZone)
         .animation(.easeInOut(duration: DrawerAnimation.duration), value: dragController.isOverStashZone)
-        .dockShadow(theme.stripShadow)
+        .dockShadow(theme.stripShadow,
+                    visible: DockLiquidGlassConfiguration.stripShadowVisible(
+                        usesLiquidGlass: usesLiquidGlass,
+                        usesSystemVariant: DockGlassPresentation.usesSystemVariant))
         .padding(PanelCoordinator.shadowPadding)
         .contentShape(Rectangle())
         .onTapGesture { action() }

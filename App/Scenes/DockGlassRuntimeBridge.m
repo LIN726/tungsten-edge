@@ -1,5 +1,6 @@
 #import "DockGlassRuntimeBridge.h"
 
+#import <AppKit/AppKit.h>
 #import <dlfcn.h>
 #import <limits.h>
 
@@ -43,6 +44,27 @@ BOOL TEDockGlassSetWindowBackgroundBlurRadius(NSInteger windowNumber, uint32_t r
             (uint32_t)windowNumber,
             MIN(radius, (uint32_t)64)
         ) == 0;
+    } @catch (__unused NSException *exception) {
+        return NO;
+    }
+}
+
+static SEL TEDockGlassVariantSelector(void) {
+    return NSSelectorFromString(@"set_variant:");
+}
+
+BOOL TEDockGlassSupportsSystemVariant(void) {
+    Class glassClass = NSClassFromString(@"NSGlassEffectView");
+    return glassClass != Nil && [glassClass instancesRespondToSelector:TEDockGlassVariantSelector()];
+}
+
+BOOL TEDockGlassSetSystemVariant(id glassView, NSInteger variant) {
+    SEL selector = TEDockGlassVariantSelector();
+    if (glassView == nil || ![glassView respondsToSelector:selector]) return NO;
+    @try {
+        IMP implementation = [glassView methodForSelector:selector];
+        ((void (*)(id, SEL, NSInteger))implementation)(glassView, selector, variant);
+        return YES;
     } @catch (__unused NSException *exception) {
         return NO;
     }

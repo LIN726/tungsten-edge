@@ -78,6 +78,29 @@ struct DockLiquidGlassConfiguration: Equatable {
     /// 背景窗口根图层的黑底不透明度。**不是观感参数**：WindowServer 需要一块非零 alpha 的
     /// 形状才肯对这个窗口做背景模糊，这是给它的最小锚点。
     let backgroundPlateOpacity: Double
+    /// Private `NSGlassEffectView` variant the plate is rendered with. **3 is the material the
+    /// native Dock itself uses**: plate colour, the backdrop-coloured 1px rim and the dark
+    /// "thickness" line on the left all come with it and match the Dock to within ±2.
+    ///
+    /// `nil` (`DOCK_LIQUID_GLASS_SYSTEM_VARIANT=off`, or the private selector gone) falls back to
+    /// the SwiftUI `.glassEffect(.clear)` plate below — every other field in this struct describes
+    /// **that fallback only**; the variant plate takes no tint and no hand-drawn rim.
+    /// Callers read it through `DockGlassPresentation.activeSystemVariant`, which checks
+    /// `TEDockGlassSupportsSystemVariant()` first.
+    let systemVariant: Int?
+
+    static let dockSystemVariant = 3
+
+    /// `DockPanelBackdrop`'s legacy 2pt outset + clip would cut off the variant plate's own rim.
+    static func backdropOutset(usesLiquidGlass: Bool, usesSystemVariant: Bool) -> CGFloat {
+        usesLiquidGlass && usesSystemVariant ? 0 : 2
+    }
+
+    /// The native Dock casts no drop shadow; with its material ours reads as a grey slab around
+    /// the plate. `stripShadow` only (taskbar + capsule) — popups keep theirs.
+    static func stripShadowVisible(usesLiquidGlass: Bool, usesSystemVariant: Bool) -> Bool {
+        !(usesLiquidGlass && usesSystemVariant)
+    }
 
     func renderPath(
         isGlassAPIAvailable: Bool,
@@ -156,8 +179,16 @@ struct DockLiquidGlassConfiguration: Equatable {
                 range: 0 ... 12,
                 fallback: 4
             ),
-            backgroundPlateOpacity: 0.001
+            backgroundPlateOpacity: 0.001,
+            systemVariant: systemVariant(DebugSwitch.liquidGlassSystemVariant.value(in: environment))
         )
+    }
+
+    private static func systemVariant(_ raw: String?) -> Int? {
+        guard let raw = trimmed(raw) else { return dockSystemVariant }
+        if raw == "off" { return nil }
+        guard let value = Int(raw), (0 ... 40).contains(value) else { return dockSystemVariant }
+        return value
     }
 
     private static func boundedDouble(

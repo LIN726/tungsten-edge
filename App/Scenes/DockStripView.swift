@@ -332,7 +332,10 @@ struct DockStripView: View {
         .background(GestureMonitorInstaller(onGesture: { handleGesturePreview(atScreen: $0) }))
         // 落地阴影住在窗口的 20pt 透明边里，玻璃态同样走这条 —— 曾经试过改画到背景窗口的
         // 图层上，但那个窗口的 frame 正好等于底板，阴影画在窗口外会被整个裁掉。
-        .dockShadow(theme.stripShadow)
+        .dockShadow(theme.stripShadow,
+                    visible: DockLiquidGlassConfiguration.stripShadowVisible(
+                        usesLiquidGlass: usesLiquidGlass,
+                        usesSystemVariant: DockGlassPresentation.usesSystemVariant))
         .padding(PanelCoordinator.shadowPadding)
         // 抽屉图标拖到任务条上：进任务条区即转正成窗口卡、跟光标整块实时让位（镜像 DrawerView 的全局鼠标驱动）。
         // 消息区的重排/释放同样由全局鼠标驱动——重排会挪动被拖 chip,SwiftUI 会取消原手势,

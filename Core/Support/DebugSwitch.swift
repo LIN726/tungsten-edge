@@ -149,6 +149,8 @@ enum DebugSwitch: String, CaseIterable, Sendable {
     case liquidGlassWindowBlur = "DOCK_LIQUID_GLASS_WINDOW_BLUR"
     /// 玻璃调参：内容内缩
     case liquidGlassContentInset = "DOCK_LIQUID_GLASS_CONTENT_INSET"
+    /// Private `NSGlassEffectView` variant for the plate (default 3 = the Dock's own material); `off` = SwiftUI plate
+    case liquidGlassSystemVariant = "DOCK_LIQUID_GLASS_SYSTEM_VARIANT"
 
     var kind: Kind {
         switch self {
@@ -169,7 +171,8 @@ enum DebugSwitch: String, CaseIterable, Sendable {
              .chipPillFill, .labelInactive, .shelfTile, .liquidGlassClearTint,
              .liquidGlassWhiteOverlay, .liquidGlassDimming, .liquidGlassBorder, .liquidGlassBorderEdge,
              .liquidGlassBorderCut, .liquidGlassBorderSpread, .liquidGlassBorderWidth, .liquidGlassBorderInner,
-             .liquidGlassBackgroundOpacity, .liquidGlassWindowBlur, .liquidGlassContentInset:
+             .liquidGlassBackgroundOpacity, .liquidGlassWindowBlur, .liquidGlassContentInset,
+             .liquidGlassSystemVariant:
             return .value
         }
     }
