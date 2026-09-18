@@ -31,12 +31,12 @@ enum WindowLiftAvoidance {
     /// 取 ~450ms 的 2.2 倍余量；同时也是 abandoned 超时重开的等待——调大会直接放大
     /// "连续缩放后要等几秒才抬"的观感（owner 2026-07-16 反馈）。
     static let appReassertWindow: TimeInterval = 1.0
-    /// 连续对峙轮数上限：abandoned 超时重开的次数；达到后降为 `standoffLockBackoff` 慢频重试，
-    /// 防止真正顽固的应用变成秒级一轮的慢动作拉锯。
+    /// 连续对峙轮数上限：abandoned 超时重开的次数；达到后这一轮彻底不再抬（owner 2026-09-18）。
+    /// 平铺式窗口管理器（AeroSpace 等）会立刻把铺满的窗口摆回去，旧行为是到顶后降为慢频
+    /// 重开、抬一下又被摆回，用户看到窗口底边周期性跳动；改成到顶即停手，让窗口安静地被条
+    /// 压住底边。不永久锁死整机：external 帧（窗口不再铺满 / 换窗 / 关窗）是万能出口，清会话
+    /// 后下一次铺满从零重来。
     static let maximumStandoffRounds = 2
-    /// 对峙轮数达到上限后的慢频重开间隔。不永久锁死：缩放记忆被污染的窗口可能永远
-    /// 等不到 external 帧，永久锁 = 用户手不够慢就再也不抬。
-    static let standoffLockBackoff: TimeInterval = 3.0
 
     enum PollCadence {
         static let idleInterval: TimeInterval = 1.0
@@ -418,8 +418,8 @@ enum WindowLiftAvoidance {
                 guard generation >= session.generation else {
                     return Transition(state: state, action: .none)
                 }
-                if at - session.abandonedAt > abandonedReopenDelay(for: session) {
-                    // 对峙窗口已过：按用户操作超时重开，记一轮对峙（达到上限后走慢频）。
+                if shouldReopenAbandoned(session, at: at) {
+                    // 对峙窗口已过、未到顶：按用户操作超时重开，记一轮对峙；到顶后停手。
                     return beginWrite(
                         generation: generation,
                         nativeFrame: nativeFrame,
@@ -585,7 +585,7 @@ enum WindowLiftAvoidance {
                 case .external:
                     return Transition(state: .idle, action: .clear)
                 case .native:
-                    if at - session.abandonedAt > abandonedReopenDelay(for: session) {
+                    if shouldReopenAbandoned(session, at: at) {
                         return beginWrite(
                             generation: generation,
                             nativeFrame: session.nativeFrame,
@@ -892,8 +892,10 @@ enum WindowLiftAvoidance {
     }
 
     /// 未达对峙上限走正常重开窗口；达到上限降为慢频（不永久锁死）。
-    private static func abandonedReopenDelay(for session: AbandonedSession) -> TimeInterval {
-        session.standoffRounds < maximumStandoffRounds ? appReassertWindow : standoffLockBackoff
+    /// 对峙轮数未到顶、且已过对峙窗口 → 超时重开记一轮；到顶后一律不再重开，这一轮只有
+    /// external 帧能清会话（见 `maximumStandoffRounds`）。
+    private static func shouldReopenAbandoned(_ session: AbandonedSession, at: TimeInterval) -> Bool {
+        session.standoffRounds < maximumStandoffRounds && at - session.abandonedAt > appReassertWindow
     }
 
     /// 只刷新观察 generation；abandonedAt/rounds/reason/frames 原样保留，保证放弃态能按时过期。
