@@ -186,7 +186,7 @@ extension PanelCoordinator {
         }
     }
 
-    /// 任务条目标 frame（按内容宽度、居中、限宽）。
+    /// Bar target frame: content width, capped; bar + drawer capsule centered as one group.
     func dockTargetFrame(contentWidth: CGFloat, on screen: NSScreen) -> NSRect {
         PanelGeometry.dockTargetFrame(contentWidth: contentWidth, on: Self.screenGeometry(screen), metrics: layoutMetrics)
     }

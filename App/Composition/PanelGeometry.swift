@@ -99,14 +99,18 @@ enum PanelGeometry {
     /// 视图侧和这里必须用同一个值（视图 `.padding(它)`，这里再减回去）。
     static let windowTitleTooltipShadowPadding: CGFloat = 8
 
+    /// The bar and the drawer capsule to its right are centered as one group, the way the native
+    /// Dock centers its whole row. Centering the bar alone leaves the set (gap + capsule) / 2 right
+    /// of center; at the width cap the group keeps `outerMargin` on both sides.
     static func dockTargetFrame(
         contentWidth: CGFloat,
         on screen: PanelScreenGeometry,
         metrics: PanelLayoutMetrics = .tungstenEdge
     ) -> CGRect {
-        let maxWidth = screen.frame.width - 2 * (metrics.outerMargin + metrics.capsuleGap + metrics.capsuleWidth)
+        let trailing = metrics.capsuleGap + metrics.capsuleWidth
+        let maxWidth = screen.frame.width - 2 * metrics.outerMargin - trailing
         let panelWidth = max(min(contentWidth, maxWidth), metrics.minimumDockWidth)
-        let x = screen.frame.minX + (screen.frame.width - panelWidth) / 2
+        let x = screen.frame.minX + (screen.frame.width - (panelWidth + trailing)) / 2
         return CGRect(
             x: x - metrics.shadowPadding,
             y: screen.frame.minY + metrics.bottomGap - metrics.shadowPadding,

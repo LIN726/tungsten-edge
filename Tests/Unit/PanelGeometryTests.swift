@@ -246,9 +246,26 @@ final class PanelGeometryTests: XCTestCase {
             // 非零原点屏幕也必须贴物理底边，且面板高度跟着档位走。
             XCTAssertEqual(dock.minY, screen.frame.minY + m.bottomGap - m.shadowPadding, "\(size) 底边")
             XCTAssertEqual(dock.height, m.windowHeight, "\(size) 面板高度")
-            XCTAssertEqual(dock.midX, screen.frame.midX, accuracy: 0.5, "\(size) 居中")
+            // Bar + drawer capsule are centered as one group, not the bar alone.
+            let groupMinX = dock.minX + m.shadowPadding
+            let groupMaxX = capsule.maxX - m.shadowPadding
+            XCTAssertEqual((groupMinX + groupMaxX) / 2, screen.frame.midX, accuracy: 0.5, "\(size) 整组居中")
             // 胶囊与任务条垂直居中对齐（两者等高时中心重合）。
             XCTAssertEqual(capsule.midY, dock.midY, accuracy: 0.5, "\(size) 胶囊垂直对齐")
+        }
+    }
+
+    func testFullBarKeepsOuterMarginOnBothSidesOfTheGroup() {
+        let screen = screen(frame: CGRect(x: -1512, y: -400, width: 1512, height: 982))
+        for size in DockSize.allCases {
+            let m = size.metrics
+            let dock = PanelGeometry.dockTargetFrame(contentWidth: 10_000, on: screen, metrics: m)
+            let capsule = PanelGeometry.capsuleTargetFrame(forDock: dock, on: screen, metrics: m)
+            let barVisible = dock.insetBy(dx: m.shadowPadding, dy: m.shadowPadding)
+            let capsuleVisible = capsule.insetBy(dx: m.shadowPadding, dy: m.shadowPadding)
+            XCTAssertEqual(barVisible.minX - screen.frame.minX, m.outerMargin, accuracy: 0.5, "\(size) 左边距")
+            XCTAssertEqual(screen.frame.maxX - capsuleVisible.maxX, m.outerMargin, accuracy: 0.5, "\(size) 右边距")
+            XCTAssertEqual(capsuleVisible.minX - barVisible.maxX, m.capsuleGap, accuracy: 0.5, "\(size) 胶囊间距")
         }
     }
 
