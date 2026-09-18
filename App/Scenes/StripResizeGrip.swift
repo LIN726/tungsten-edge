@@ -26,11 +26,8 @@ final class StripResizeGripController {
     }
 }
 
-/// No ↕ cursor: an `.accessory` app that never becomes key cannot change the system cursor
-/// over its own `.nonactivatingPanel` — `NSCursor.set()` / `push()` and a `.cursorUpdate`
-/// tracking area are all ignored while the app is inactive (`Docs/05` §「后台应用改不了系统光标」).
-/// The zones are the same ones the background right-click already uses, so the drag works
-/// without a cursor cue; do not re-add `NSCursor` calls here.
+/// Input only: the coordinator displays the native cursor artwork in a nonactivating panel
+/// and owns the system pointer's hide/show lifetime. This view never activates the app.
 /// Transparent overlay on the strip that claims a plain left mouse-down inside a grip zone
 /// (the bar's end insets and the wide gap around a zone divider — exactly the zones the
 /// background right-click claims, decided by the same `shouldClaim`) and turns the drag

@@ -43,6 +43,9 @@
 		E90000000000000000001019 /* StripPointerTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90000000000000000000019 /* StripPointerTracker.swift */; };
 		E9D000000000000000001031 /* StripResizeGrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9D000000000000000000031 /* StripResizeGrip.swift */; };
 		E9D000000000000000001034 /* ResizeCursorGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9D000000000000000000034 /* ResizeCursorGlyph.swift */; };
+		E9D000000000000000002034 /* ResizeCursorGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9D000000000000000000034 /* ResizeCursorGlyph.swift */; };
+		E9D000000000000000001036 /* SystemCursorHider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9D000000000000000000036 /* SystemCursorHider.swift */; };
+		E9D000000000000000002036 /* SystemCursorHider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9D000000000000000000036 /* SystemCursorHider.swift */; };
 		E9D000000000000000001035 /* PanelCoordinator+ResizeCursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9D000000000000000000035 /* PanelCoordinator+ResizeCursor.swift */; };
 		E9000000000000000000101A /* GestureMonitorInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9000000000000000000001A /* GestureMonitorInstaller.swift */; };
 		E90000000000000000001007 /* DebugSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90000000000000000000007 /* DebugSwitch.swift */; };
@@ -530,6 +533,7 @@
 		E90000000000000000000019 /* StripPointerTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StripPointerTracker.swift; sourceTree = "<group>"; };
 		E9D000000000000000000031 /* StripResizeGrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StripResizeGrip.swift; sourceTree = "<group>"; };
 		E9D000000000000000000034 /* ResizeCursorGlyph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResizeCursorGlyph.swift; sourceTree = "<group>"; };
+		E9D000000000000000000036 /* SystemCursorHider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCursorHider.swift; sourceTree = "<group>"; };
 		E9D000000000000000000035 /* PanelCoordinator+ResizeCursor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PanelCoordinator+ResizeCursor.swift"; sourceTree = "<group>"; };
 		E9D000000000000000000032 /* DockHeightDragSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockHeightDragSession.swift; sourceTree = "<group>"; };
 		E9D000000000000000000033 /* DockHeightDragSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockHeightDragSessionTests.swift; sourceTree = "<group>"; };
@@ -918,6 +922,7 @@
 				D10000000000000000000008 /* ChipSnapshotter.swift */,
 				A00000000000000000007010 /* DrawerOrderStore.swift */,
 				A00000000000000000008010 /* AppSettingsStore.swift */,
+				E9D000000000000000000036 /* SystemCursorHider.swift */,
 				D10000000000000000000003 /* SettingsCoordinator.swift */,
 				B78000000000000000000013 /* LicenseStore.swift */,
 				D10000000000000000000004 /* AutoHideToggleMenuModel.swift */,
@@ -1582,6 +1587,7 @@
 				E90000000000000000001019 /* StripPointerTracker.swift in Sources */,
 				E9D000000000000000001031 /* StripResizeGrip.swift in Sources */,
 				E9D000000000000000001034 /* ResizeCursorGlyph.swift in Sources */,
+				E9D000000000000000001036 /* SystemCursorHider.swift in Sources */,
 				E9D000000000000000001035 /* PanelCoordinator+ResizeCursor.swift in Sources */,
 				E9000000000000000000101A /* GestureMonitorInstaller.swift in Sources */,
 				E90000000000000000001007 /* DebugSwitch.swift in Sources */,
@@ -1834,6 +1840,8 @@
 				A0000000000000000000B052 /* PermissionService.swift in Sources */,
 				A0000000000000000000B062 /* PermissionOnboardingTests.swift in Sources */,
 				A00000000000000000008031 /* AppSettingsStore.swift in Sources */,
+				E9D000000000000000002034 /* ResizeCursorGlyph.swift in Sources */,
+				E9D000000000000000002036 /* SystemCursorHider.swift in Sources */,
 				D20000000000000000000013 /* SettingsCoordinator.swift in Sources */,
 				B78000000000000000000012 /* LicenseStore.swift in Sources */,
 				D20000000000000000000014 /* AutoHideToggleMenuModel.swift in Sources */,
