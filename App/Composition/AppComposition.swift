@@ -28,6 +28,12 @@ final class AppRuntime: ObservableObject {
     /// 乐观状态 overlay（见 OptimisticWindowState 注释）。UI 渲染与 toggle 规划
     /// 优先读这里；快照兑现预测或超时（静默回弹）后清除。
     @Published private(set) var optimisticStatesByWindowID: [String: OptimisticWindowState] = [:]
+    /// 标签跟随抑制（`WindowTitleSettle`）：卡 id → 冻结期间该显示的标题。只覆盖投影层的**标签**，
+    /// `StripItem.title`、气泡与菜单仍是清单里的原始标题。
+    @Published private(set) var heldLabelTitlesByChipID: [String: String] = [:]
+    private var titleSettle = WindowTitleSettle()
+    private var titleSettleTimer: Timer?
+    private let titleSettleEnabled = DebugSwitch.titleSettle.isEnabled(in: ProcessInfo.processInfo.environment)
     /// 「在运行但没窗口」图标的显式住址（多屏 ④：bundleID → display UUID，会话内、不持久化）。
     /// 由跨屏拖动写入；**不放进窗口清单**——清单里可能根本没有这个 app 的条目（零座位的保留应用走
     /// 占位显示），写进清单就落空、卡回主屏（owner 2026-09-02 第四轮）。这个 app 一有真窗口就清掉，
@@ -138,6 +144,8 @@ final class AppRuntime: ObservableObject {
         snapshotSubscription = nil
         feedbackTimer?.invalidate()
         feedbackTimer = nil
+        titleSettleTimer?.invalidate()
+        titleSettleTimer = nil
         for held in heldActionsByWindowID.values { held.workItem.cancel() }
         heldActionsByWindowID.removeAll()
         recentMinimizeDispatchAtByWindowID.removeAll()
@@ -148,6 +156,7 @@ final class AppRuntime: ObservableObject {
 
     deinit {
         feedbackTimer?.invalidate()
+        titleSettleTimer?.invalidate()
         snapshotSubscription?.cancel()
         for held in heldActionsByWindowID.values { held.workItem.cancel() }
         for entry in launchSessions.currentEntries {
@@ -963,6 +972,7 @@ final class AppRuntime: ObservableObject {
             }
         }
         reconcileLaunchingStates(with: newSnapshot)
+        reconcileTitleSettle(with: newSnapshot)
         let trusted = isAccessibilityTrusted()
         if hasRequiredPermissions != trusted { hasRequiredPermissions = trusted }
         intentPipeline.reconcile(with: newSnapshot)
@@ -975,6 +985,30 @@ final class AppRuntime: ObservableObject {
             let ms = Int(Date().timeIntervalSince(startedAt) * 1000)
             debugState.setObservationStatusText(hasRequiredPermissions ? "实时 \(ms)ms" : "仅窗口列表")
             self.startedAt = nil
+        }
+    }
+
+    /// 每轮快照喂一次 `WindowTitleSettle`；有卡被冻结就按它给的最早放开时刻起一枚一次性计时器，
+    /// 到点用当前快照再喂一轮（原始标题没再变就会放开）。只在冻结表真的变了才发布。
+    private func reconcileTitleSettle(with newSnapshot: DockSnapshot) {
+        guard titleSettleEnabled else { return }
+        var rawTitles: [String: String] = [:]
+        for item in StripItem.items(from: newSnapshot) where !item.isAppLevelFallback {
+            rawTitles[item.id] = item.title
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        let held = titleSettle.observe(rawTitles: rawTitles, now: now)
+        if held != heldLabelTitlesByChipID { heldLabelTitlesByChipID = held }
+
+        titleSettleTimer?.invalidate()
+        titleSettleTimer = nil
+        guard let releaseAt = titleSettle.nextReleaseAt else { return }
+        let delay = max(0.05, releaseAt - now + 0.05)
+        titleSettleTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.isRunning else { return }
+                self.reconcileTitleSettle(with: self.snapshot)
+            }
         }
     }
 

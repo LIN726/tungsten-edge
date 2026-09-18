@@ -67,6 +67,8 @@ enum DebugSwitch: String, CaseIterable, Sendable {
     case stripHoverPoll = "DOCK_STRIP_HOVER_POLL"
     /// 按下 chip 的即时按压反馈
     case chipPressDown = "DOCK_CHIP_PRESS_DOWN"
+    /// 卡片标签对反复横跳的窗口标题的跟随抑制（WindowTitleSettle）
+    case titleSettle = "DOCK_TITLE_SETTLE"
 
     // MARK: 默认关的追踪 / 实验（=1 开）
     /// 多屏归属写入日志（category display-trace）
@@ -154,7 +156,7 @@ enum DebugSwitch: String, CaseIterable, Sendable {
              .handoffActivePrediction, .staleActiveGuard, .dragLanding, .liquidGlass,
              .spaceIntent, .fullscreenIntent, .fullscreenSlsVerdict, .spaceMembershipRepair,
              .overlaySpace, .scrollReverser, .windowLift, .windowLiftAnim,
-             .menuHoverSuspend, .hoverMonitorLean, .stripHoverPoll, .chipPressDown:
+             .menuHoverSuspend, .hoverMonitorLean, .stripHoverPoll, .chipPressDown, .titleSettle:
             return .killSwitch
         case .displayTrace, .launchTrace, .chipProbe, .clickTrace,
              .hoverTrace, .edgehoverTrace, .stripWheelTrace, .chipAnimTrace, .labelProbe,
