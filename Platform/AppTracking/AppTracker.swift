@@ -65,11 +65,25 @@ struct WindowEntry {
 protocol AppTrackerProcessProviding: Sendable {
     func isAlive(pid: pid_t) -> Bool
     func identity(pid: pid_t, bundleID: String?) -> ScanAdmissionDecision.ProcessIdentity
+    /// Whether the process currently runs with the `.regular` activation policy; `nil` when
+    /// LaunchServices cannot resolve the pid. Policy only — never liveness (see `isAlive`).
+    func isRegularApplication(pid: pid_t) -> Bool?
+}
+
+extension AppTrackerProcessProviding {
+    /// Unknown is the safe answer: `NonRegularEvictionDecision` treats it as "keep".
+    func isRegularApplication(pid: pid_t) -> Bool? { nil }
 }
 
 struct LiveAppTrackerProcessProvider: AppTrackerProcessProviding {
     func isAlive(pid: pid_t) -> Bool {
         ProcessLiveness.isAlive(pid: pid)
+    }
+
+    func isRegularApplication(pid: pid_t) -> Bool? {
+        // One LaunchServices round trip; reached only for a seatless tracked process after a
+        // seat release or on the 60s slow scan, never per tick for every app.
+        NSRunningApplication(processIdentifier: pid).map { $0.activationPolicy == .regular }
     }
 
     func identity(pid: pid_t, bundleID: String?) -> ScanAdmissionDecision.ProcessIdentity {
@@ -94,6 +108,11 @@ final class AppTracker: ObservableObject {
     private var reconcileTimer: Timer?
     private var frontmostPollTimer: Timer?
     private var isScanningCandidates = false
+    /// Per-pid retry task asking whether a freshly seatless process is still `.regular`
+    /// (`scheduleNonRegularEviction`). Ice flips back to `.accessory` right after its settings
+    /// window closes, sometimes after our destroy handler has already landed, hence the retries.
+    private var nonRegularEvictionTasks: [pid_t: Task<Void, Never>] = [:]
+    private static let nonRegularEvictionDelays: [TimeInterval] = [0.2, 0.5, 1.0, 2.0, 5.0]
     /// 动作路径用的 AX 元素旁路缓存。写在这里（盘点读本来就拿着元素），读在
     /// `PlatformActionExecutor`。刻意不进 `DockSnapshot`，理由见 `AXElementCache`。
     private let elementCache = AXElementCache.shared
@@ -874,10 +893,14 @@ final class AppTracker: ObservableObject {
             shadowPoolDiagnosticsByPID[pid] = diagnostic
         }
 
+        let hadSeats = !app.windowOrder.isEmpty
         app.windowOrder = newOrder
         app.windowsByID = newByID
         apps[pid] = app
         let changed = seatSignature(app) != before
+        // Last seat gone → ask (with retries) whether the process is still `.regular`; a menu-bar
+        // app that flipped back to `.accessory` must not keep projecting an `app-*` fallback chip.
+        if hadSeats, newOrder.isEmpty { scheduleNonRegularEviction(pid: pid) }
         gateStates[pid] = ReconcileGateState(
             lastCGIDs: cgPidIDs,
             lastFullReadUptime: uptimeProvider(),
@@ -1282,6 +1305,7 @@ final class AppTracker: ObservableObject {
         scanMemos.removeValue(forKey: pid)
         scanDirtyPIDs.remove(pid)
         scanCandidateCache = nil
+        nonRegularEvictionTasks.removeValue(forKey: pid)?.cancel()
 
         // Finder relaunches immediately via launchd. Keep the entry (no windows) so the chip
         // stays visible during the gap. handleAppLaunched will replace this stale entry with
@@ -1377,6 +1401,75 @@ final class AppTracker: ObservableObject {
                     self.rebuildSnapshot()
                 }
             }
+        }
+    }
+
+    // MARK: - Non-Regular Eviction
+
+    /// The system Dock drops a process the moment it leaves `.regular`; a seatless `AppEntry` would
+    /// otherwise keep its `app-*` fallback chip for the process's whole life (`reconcile()` only
+    /// removes dead pids). Retries cover the policy flipping slightly after the window close.
+    private func scheduleNonRegularEviction(pid: pid_t) {
+        nonRegularEvictionTasks[pid]?.cancel()
+        let probedIdentity = processIdentity(pid: pid, bundleID: apps[pid]?.bundleIdentifier)
+        nonRegularEvictionTasks[pid] = Task { @MainActor [weak self] in
+            for delay in Self.nonRegularEvictionDelays {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard !Task.isCancelled, let self else { return }
+                switch self.evictIfNonRegular(pid: pid, probedIdentity: probedIdentity) {
+                case .keepRegular, .keepPolicyUnknown:
+                    continue
+                case .evict, .keepUntracked, .keepFinder, .keepHasSeats, .keepIdentityChanged:
+                    self.nonRegularEvictionTasks.removeValue(forKey: pid)
+                    return
+                }
+            }
+            self?.nonRegularEvictionTasks.removeValue(forKey: pid)
+        }
+    }
+
+    @discardableResult
+    private func evictIfNonRegular(
+        pid: pid_t,
+        probedIdentity: ScanAdmissionDecision.ProcessIdentity? = nil
+    ) -> NonRegularEvictionDecision.Verdict {
+        let app = apps[pid]
+        let currentIdentity = processIdentity(pid: pid, bundleID: app?.bundleIdentifier)
+        let verdict = NonRegularEvictionDecision.verdict(
+            isTracked: app != nil,
+            isFinder: FinderWindowRules.isFinder(bundleIdentifier: app?.bundleIdentifier),
+            hasSeats: !(app?.windowOrder.isEmpty ?? true),
+            identityMatches: probedIdentity.map {
+                ScanAdmissionDecision.ProcessIdentity.matches(probed: $0, current: currentIdentity)
+            } ?? true,
+            isRegular: app == nil ? nil : processProvider.isRegularApplication(pid: pid)
+        )
+        if verdict == .evict { evictNonRegularEntry(pid: pid) }
+        return verdict
+    }
+
+    private func evictNonRegularEntry(pid: pid_t) {
+        nonRegularEvictionTasks.removeValue(forKey: pid)?.cancel()
+        guard let app = apps[pid], app.windowOrder.isEmpty else { return }
+        logger.info("evict: pid=\(pid) \(app.appName, privacy: .public) left .regular with no seats, dropping the app-level fallback")
+        cgEventGeneration &+= 1
+        invalidateEventReads(pid: pid)
+        observers[pid]?.stop()
+        observers.removeValue(forKey: pid)
+        clearInventoryDiagnostics(pid: pid)
+        gateStates.removeValue(forKey: pid)
+        scanMemos.removeValue(forKey: pid)
+        scanDirtyPIDs.remove(pid)
+        scanCandidateCache = nil
+        apps.removeValue(forKey: pid)
+        appOrder.removeAll { $0 == pid }
+        elementCache.removeAll(pid: pid)
+        rebuildSnapshot()
+    }
+
+    private func sweepNonRegularZeroSeatEntries() {
+        for pid in appOrder where apps[pid]?.windowOrder.isEmpty == true {
+            evictIfNonRegular(pid: pid)
         }
     }
 
@@ -1911,7 +2004,12 @@ final class AppTracker: ObservableObject {
             slowFullScanDue = lastFullScanUptime.map {
                 uptime - $0 >= ScanProbeGateDecision.defaultFullScanInterval
             } ?? true
-            if slowFullScanDue { lastFullScanUptime = uptime }
+            if slowFullScanDue {
+                lastFullScanUptime = uptime
+                // Catches a process that was seatless when it left `.regular` (no seat release
+                // to trigger the event-driven check) — one policy read per seatless entry per 60s.
+                sweepNonRegularZeroSeatEntries()
+            }
         }
         // 候选连同**探测时刻的进程代际**一起带走：后台探测期间 pid 可能被复用，回调必须能认出换人。
         let candidates: [(pid: pid_t, identity: ScanAdmissionDecision.ProcessIdentity)]
@@ -2328,6 +2426,15 @@ final class AppTracker: ObservableObject {
 
     func setObserverActiveForTesting(pid: pid_t, active: Bool) {
         observerActiveOverridesForTesting[pid] = active
+    }
+
+    @discardableResult
+    func evictIfNonRegularForTesting(pid: pid_t) -> NonRegularEvictionDecision.Verdict {
+        evictIfNonRegular(pid: pid)
+    }
+
+    func sweepNonRegularZeroSeatEntriesForTesting() {
+        sweepNonRegularZeroSeatEntries()
     }
 
     func runPeriodicBatchForTesting(
