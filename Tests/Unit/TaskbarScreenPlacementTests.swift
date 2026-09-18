@@ -159,6 +159,37 @@ final class TaskbarScreenPlacementTests: XCTestCase {
         XCTAssertTrue(presentation.items[3].title.contains("Dell U2720Q") == true)
     }
 
+    /// Screen rows read "Pinned to <name>" (固定在 <name>); the disconnected row wraps the "(disconnected)" name the same way.
+    func testScreenRowsCarryThePinnedPrefix() {
+        let presentation = TaskbarScreenMenuPresentation(
+            placement: .pinned(PinnedScreenSelection(uuid: "Z", name: "Dell U2720Q")),
+            connectedScreens: screens
+        )
+        let pinnedFormat = String(localized: "Pinned to %@")
+        XCTAssertEqual(presentation.items[1].title, String(format: pinnedFormat, "内建显示器"))
+        XCTAssertEqual(presentation.items[2].title, String(format: pinnedFormat, "LG HDR 4K"))
+        XCTAssertEqual(
+            presentation.items[3].title,
+            String(format: pinnedFormat, String(format: String(localized: "%@ (disconnected)"), "Dell U2720Q"))
+        )
+    }
+
+    /// Only 跟随栏 carries the grey hint; its short name does not say the bar waits for a bottom-edge dwell.
+    func testOnlyFollowMouseHasHint() {
+        let presentation = TaskbarScreenMenuPresentation(placement: .followMouse, connectedScreens: screens)
+        XCTAssertEqual(presentation.items[0].hint, String(localized: "Hover a screen's bottom edge to switch"))
+        XCTAssertEqual(presentation.items.dropFirst().compactMap(\.hint), [])
+    }
+
+    /// The hint aligns after this prefix, so it must really be what the 固定在 rows start with.
+    func testPinnedTitlePrefixIsTheStartOfEveryScreenRow() {
+        let presentation = TaskbarScreenMenuPresentation(placement: .followMouse, connectedScreens: screens)
+        let prefix = TaskbarScreenMenuPresentation.pinnedTitlePrefix
+        XCTAssertFalse(prefix.isEmpty)
+        XCTAssertEqual(presentation.items[1].title, prefix + "内建显示器")
+        XCTAssertEqual(presentation.items[2].title, prefix + "LG HDR 4K")
+    }
+
     // MARK: - ③④ 所有屏幕档（2026-09-02）
 
     func testAllScreensIsTheOnlyCheckedItemAndSitsAfterScreens() {
