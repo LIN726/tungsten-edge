@@ -447,16 +447,33 @@ enum AppIconResolver {
             return cached
         }
 
-        let icon: NSImage
+        let shared: NSImage
         if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
-            icon = NSWorkspace.shared.icon(forFile: appURL.path)
+            shared = NSWorkspace.shared.icon(forFile: appURL.path)
         } else {
-            icon = NSWorkspace.shared.icon(for: .applicationBundle)
+            shared = NSWorkspace.shared.icon(for: .applicationBundle)
         }
 
+        // copy() first: `icon(forFile:)` hands out a shared cached NSImage.
+        let icon = (shared.copy() as? NSImage) ?? shared
+        removePlatedRepresentations(from: icon)
         icon.size = NSSize(width: 32, height: 32)
         if cache.count >= 512 { cache.removeAll() }   // 只防无限增长；正常一辈子都碰不到
         cache[bundleIdentifier] = icon
         return icon
+    }
+
+    /// Drops the small @1x representations (16 / 18 / 24 / 32pt at 1x). For an app icon that does not
+    /// follow the system icon shape, IconServices draws exactly those on a grey rounded plate while
+    /// the @2x and ≥128pt ones stay clean, and an 18px draw (the drawer capsule preview on Retina, any
+    /// small icon on a 1x display) picks them by exact pixel match — a white ring around the icon.
+    /// The @2x representations cover the same pixel sizes, so nothing is lost.
+    private static func removePlatedRepresentations(from icon: NSImage) {
+        let plated = icon.representations.filter {
+            $0.size.width < 128 && CGFloat($0.pixelsWide) <= $0.size.width
+        }
+        // Never strip an image down to nothing.
+        guard plated.count < icon.representations.count else { return }
+        plated.forEach(icon.removeRepresentation)
     }
 }
