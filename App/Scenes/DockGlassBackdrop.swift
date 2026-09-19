@@ -23,6 +23,8 @@ struct DockGlassBackdrop: View {
                     cornerRadius: cornerRadius,
                     variant: variant,
                     matchesDockRefraction: matchesDockRefraction && DockGlassPresentation.dockRefractionEnabled
+                        && variant == DockLiquidGlassConfiguration.dockSystemVariant,
+                    usesDiagonalHighlight: matchesDockRefraction && DockGlassPresentation.diagonalHighlightEnabled
                         && variant == DockLiquidGlassConfiguration.dockSystemVariant
                 )
                     .allowsHitTesting(false)
@@ -199,6 +201,7 @@ private extension View {
 enum DockGlassPresentation {
     static let configuration = DockLiquidGlassConfiguration.resolve()
     static let dockRefractionEnabled = DebugSwitch.liquidGlassDockRefraction.isEnabled()
+    static let diagonalHighlightEnabled = DebugSwitch.liquidGlassDiagonalHighlight.isEnabled()
 
     /// The system variant in effect, or `nil` when it is switched off or the private selector is gone.
     static let activeSystemVariant: Int? = {
@@ -231,7 +234,7 @@ enum DockGlassPresentation {
             print("[glass] taskbar composite active, clearTint=\(c.clearTintOpacity), rim(\(rim)), "
                 + "background=\(c.backgroundMaterialOpacity), windowBlur=\(c.windowBlurRadius), "
                 + "systemVariant=\(activeSystemVariant.map(String.init) ?? "off"), "
-                + "dockRefraction=\(dockRefractionEnabled)")
+                + "dockRefraction=\(dockRefractionEnabled), diagonalHighlight=\(diagonalHighlightEnabled)")
         } else if #available(macOS 26.0, *) {
             print("[glass] composite unavailable; using NSVisualEffectView")
         } else {
@@ -246,6 +249,7 @@ private struct DockSystemGlassVariantPlate: NSViewRepresentable {
     let cornerRadius: CGFloat
     let variant: Int
     let matchesDockRefraction: Bool
+    let usesDiagonalHighlight: Bool
 
     func makeCoordinator() -> DockGlassRefractionObserver { DockGlassRefractionObserver() }
 
@@ -253,14 +257,24 @@ private struct DockSystemGlassVariantPlate: NSViewRepresentable {
         let view = NSGlassEffectView()
         view.contentView = NSView()
         apply(to: view)
-        if matchesDockRefraction { context.coordinator.attach(to: view) }
+        configureObserver(context.coordinator, for: view)
         return view
     }
 
     // SwiftUI re-runs update, never re-creates the view — the radius follows drag-to-resize here.
     func updateNSView(_ view: NSGlassEffectView, context: Context) {
         apply(to: view)
-        if matchesDockRefraction { context.coordinator.attach(to: view) }
+        configureObserver(context.coordinator, for: view)
+    }
+
+    private func configureObserver(_ observer: DockGlassRefractionObserver, for view: NSView) {
+        if matchesDockRefraction || usesDiagonalHighlight {
+            observer.attach(to: view,
+                            refractionEnabled: matchesDockRefraction,
+                            diagonalHighlightEnabled: usesDiagonalHighlight)
+        } else {
+            observer.stop()
+        }
     }
 
     static func dismantleNSView(_ view: NSGlassEffectView, coordinator: DockGlassRefractionObserver) {
@@ -279,14 +293,19 @@ private final class DockGlassRefractionObserver {
     private weak var view: NSView?
     private var viewObservation: NSKeyValueObservation?
     private var layerObservations: [ObjectIdentifier: [NSKeyValueObservation]] = [:]
+    private var effectObservations: [ObjectIdentifier: NSObject] = [:]
     private var refreshScheduled = false
+    private var refractionEnabled = false
+    private var diagonalHighlightEnabled = false
 
-    func attach(to view: NSView) {
+    func attach(to view: NSView, refractionEnabled: Bool, diagonalHighlightEnabled: Bool) {
         if self.view !== view {
             stop()
             self.view = view
             viewObservation = view.observe(\.layer) { [weak self] _, _ in self?.scheduleRefresh() }
         }
+        self.refractionEnabled = refractionEnabled
+        self.diagonalHighlightEnabled = diagonalHighlightEnabled
         scheduleRefresh()
     }
 
@@ -294,6 +313,7 @@ private final class DockGlassRefractionObserver {
         view = nil
         viewObservation = nil
         layerObservations.removeAll()
+        effectObservations.removeAll()
     }
 
     private func scheduleRefresh() {
@@ -309,6 +329,7 @@ private final class DockGlassRefractionObserver {
     private func refresh() {
         guard let root = view?.layer else {
             layerObservations.removeAll()
+            effectObservations.removeAll()
             return
         }
         var pending = [root]
@@ -322,12 +343,25 @@ private final class DockGlassRefractionObserver {
                     layer.observe(\.filters) { [weak self] _, _ in self?.scheduleRefresh() }
                 ]
             }
-            _ = TEDockGlassSetRefraction(layer,
-                                        DockLiquidGlassConfiguration.dockInnerRefractionHeight,
-                                        DockLiquidGlassConfiguration.dockInnerRefractionAmount)
+            if refractionEnabled {
+                _ = TEDockGlassSetRefraction(layer,
+                                            DockLiquidGlassConfiguration.dockInnerRefractionHeight,
+                                            DockLiquidGlassConfiguration.dockInnerRefractionAmount)
+            }
+            if diagonalHighlightEnabled {
+                if effectObservations[id] == nil {
+                    effectObservations[id] = TEDockGlassObserveEffect(layer) { [weak self] in
+                        self?.scheduleRefresh()
+                    }
+                }
+                _ = TEDockGlassSetHighlightAngles(layer,
+                                                 DockLiquidGlassConfiguration.diagonalKeyAngle,
+                                                 DockLiquidGlassConfiguration.diagonalFillAngle)
+            }
             pending.append(contentsOf: layer.sublayers ?? [])
         }
         layerObservations = layerObservations.filter { seen.contains($0.key) }
+        effectObservations = effectObservations.filter { diagonalHighlightEnabled && seen.contains($0.key) }
     }
 }
 

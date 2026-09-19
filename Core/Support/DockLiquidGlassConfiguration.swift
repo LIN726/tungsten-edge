@@ -96,6 +96,10 @@ struct DockLiquidGlassConfiguration: Equatable {
     static let dockInnerRefractionHeight = 13.28
     static let dockInnerRefractionAmount = -29.88
 
+    // System highlight angles are measured clockwise from the top edge normal.
+    static let diagonalKeyAngle = -25 * Double.pi / 180
+    static let diagonalFillAngle = Double.pi + diagonalKeyAngle
+
     /// `DockPanelBackdrop`'s legacy 2pt outset + clip would cut off the variant plate's own rim.
     static func backdropOutset(usesLiquidGlass: Bool, usesSystemVariant: Bool) -> CGFloat {
         usesLiquidGlass && usesSystemVariant ? 0 : 2

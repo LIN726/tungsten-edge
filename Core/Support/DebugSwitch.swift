@@ -45,6 +45,8 @@ enum DebugSwitch: String, CaseIterable, Sendable {
     case liquidGlass = "DOCK_LIQUID_GLASS"
     /// Fixed-scale background refraction on the taskbar and drawer capsule; =0 disables it.
     case liquidGlassDockRefraction = "DOCK_LIQUID_GLASS_DOCK_REFRACTION"
+    /// Accepted diagonal system rim lighting; =0 restores the system's vertical light directions.
+    case liquidGlassDiagonalHighlight = "DOCK_LIQUID_GLASS_DIAGONAL_HIGHLIGHT"
     /// 桌面 / 全屏空间切换意图监听（session 事件 tap）
     case spaceIntent = "DOCK_SPACE_INTENT"
     /// 原生全屏进入前的预测让位
@@ -160,6 +162,7 @@ enum DebugSwitch: String, CaseIterable, Sendable {
              .cgSnapshotReuse, .axElementCache, .skylightFocus, .fastWindowHandle,
              .badgeTargeted, .badgePause, .minimizeSettleGate, .handoffActiveGrace,
              .handoffActivePrediction, .staleActiveGuard, .dragLanding, .liquidGlass, .liquidGlassDockRefraction,
+             .liquidGlassDiagonalHighlight,
              .spaceIntent, .fullscreenIntent, .fullscreenSlsVerdict, .spaceMembershipRepair,
              .overlaySpace, .scrollReverser, .windowLift, .windowLiftAnim,
              .menuHoverSuspend, .hoverMonitorLean, .stripHoverPoll, .resizeCursor, .chipPressDown, .titleSettle:
