@@ -279,7 +279,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        SystemCursorHider.shared.show()   // never leave the pointer hidden behind us
+        SystemResizeCursor.shared.reset()   // never leave the ▲▼ or a hidden pointer behind us
+        SystemCursorHider.shared.show()
         trashSettingSubscription = nil
         TrashStateStore.shared.stop()
         edgeToggleHotKey?.stop()

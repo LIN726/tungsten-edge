@@ -103,16 +103,32 @@ extension DockStripView {
     /// PreferenceKey，从来不合并进 `chipFrames`）。
     func taskbarMenuZoneClaims(atScreen global: CGPoint) -> Bool {
         guard let point = stripPoint(from: global) else { return false }
+        return StripContextMenuZone.claims(
+            point: point,
+            chipFrames: allStripChipFrames(),
+            bounds: CGRect(origin: .zero, size: stripRootScreenRect.size),
+            minimumGapWidth: StripContextMenuZone.defaultMinimumGapWidth * dockScale
+        )
+    }
+
+    /// Drag-to-resize grip (and its ▲▼ glyph): the right-click zones kept clear of the chips.
+    func resizeGripZoneClaims(atScreen global: CGPoint) -> Bool {
+        guard let point = stripPoint(from: global) else { return false }
+        return StripContextMenuZone.gripClaims(
+            point: point,
+            chipFrames: allStripChipFrames(),
+            bounds: CGRect(origin: .zero, size: stripRootScreenRect.size),
+            minimumGapWidth: StripContextMenuZone.defaultMinimumGapWidth * dockScale,
+            chipClearance: StripContextMenuZone.defaultGripChipClearance * dockScale
+        )
+    }
+
+    private func allStripChipFrames() -> [CGRect] {
         var frames = Array(chipFrames.values)
         frames.append(contentsOf: folderChipFrames.values)
         frames.append(contentsOf: messagingChipFrames.values)
         if shelfFrame != .zero { frames.append(shelfFrame) }
         if settingsStore.showTrash, trashFrame != .zero { frames.append(trashFrame) }
-        return StripContextMenuZone.claims(
-            point: point,
-            chipFrames: frames,
-            bounds: CGRect(origin: .zero, size: stripRootScreenRect.size),
-            minimumGapWidth: StripContextMenuZone.defaultMinimumGapWidth * dockScale
-        )
+        return frames
     }
 }

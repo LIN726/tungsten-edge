@@ -49,6 +49,7 @@ extension PanelCoordinator {
                 self?.handleWindowTitleTooltipEvent(event)
             },
             onRequestTaskbarMenu: { [weak self] event, view in
+                self?.prepareResizeCursorForMenu()
                 self?.onRequestTaskbarMenu?(event, view)
             },
             onInteractiveResize: { [weak self] event in

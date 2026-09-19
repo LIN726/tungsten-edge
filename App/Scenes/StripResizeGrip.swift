@@ -29,8 +29,9 @@ final class StripResizeGripController {
 /// Input only: the coordinator displays the native cursor artwork in a nonactivating panel
 /// and owns the system pointer's hide/show lifetime. This view never activates the app.
 /// Transparent overlay on the strip that claims a plain left mouse-down inside a grip zone
-/// (the bar's end insets and the wide gap around a zone divider — exactly the zones the
-/// background right-click claims, decided by the same `shouldClaim`) and turns the drag
+/// (the bar's end insets and the wide gap around a zone divider — the zones the background
+/// right-click claims, kept clear of the chips by `StripContextMenuZone.gripClaims`; the same
+/// `shouldClaim` also decides the ▲▼ hover) and turns the drag
 /// into `StripResizeGripEvent`s. Everything else returns `nil` from `hitTest` and falls
 /// through to the chips, the wheel interceptor and `MenuHostNSView`.
 final class StripResizeGripView: NSView {

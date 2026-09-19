@@ -211,6 +211,10 @@ final class PanelCoordinator: NSObject {
     /// The ▲▼ glyph panel that stands in for the system cursor (`PanelCoordinator+ResizeCursor`).
     var resizeCursorPanel: NSPanel?
     var resizeCursorHost: ManualPanelHost?
+    /// Latest grip-zone hover report, kept so a menu opening or closing can put the ▲▼ back
+    /// without waiting for the pointer to move.
+    var gripHoverPointer: CGPoint?
+    var resizeCursorReassertTimer: Timer?
     /// 抽屉拖回任务条·"松手才变长"：转正进行中冻结任务条宽度，转正态结束（松手落定 / 拖出还原）再 relayout。
     var stripSlotCollapseSubscription: AnyCancellable?
     var springOpenTimer: Timer?

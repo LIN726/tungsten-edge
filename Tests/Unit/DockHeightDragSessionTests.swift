@@ -84,6 +84,50 @@ final class ResizeCursorTests: XCTestCase {
         XCTAssertEqual(shows, 2)
     }
 
+    func testNativeCursorReassertsAndOtherScreenCannotResetIt() {
+        var sets = 0
+        var arrows = 0
+        let cursor = SystemResizeCursor(setResize: { sets += 1; return true },
+                                        setArrow: { arrows += 1; return true },
+                                        readBackMatches: { true })
+        XCTAssertTrue(cursor.set(owner: "screen-a"))
+        XCTAssertTrue(cursor.set(owner: "screen-a"))
+        XCTAssertEqual(sets, 2, "every call re-asserts: menu tracking resets the cursor behind us")
+        cursor.reset(owner: "screen-b")
+        XCTAssertTrue(cursor.isActive)
+        XCTAssertEqual(arrows, 0)
+        cursor.reset(owner: "screen-a")
+        cursor.reset(owner: "screen-a")
+        cursor.reset()
+        XCTAssertFalse(cursor.isActive)
+        XCTAssertEqual(arrows, 1)
+    }
+
+    func testNativeCursorTurnsItselfOffWhenTheSetFailsOrReadsBackWrong() {
+        for (setSucceeds, readBack) in [(false, true), (true, false)] {
+            var sets = 0
+            var arrows = 0
+            let cursor = SystemResizeCursor(setResize: { sets += 1; return setSucceeds },
+                                            setArrow: { arrows += 1; return true },
+                                            readBackMatches: { readBack })
+            XCTAssertTrue(cursor.isAvailable)
+            XCTAssertFalse(cursor.set(owner: "screen-a"))
+            XCTAssertFalse(cursor.isAvailable)
+            XCTAssertFalse(cursor.isActive)
+            XCTAssertEqual(arrows, 1, "a half-applied cursor is put back")
+            XCTAssertFalse(cursor.set(owner: "screen-a"))
+            XCTAssertEqual(sets, 1, "ruled out for the process, never retried")
+        }
+    }
+
+    func testNativeCursorReadsBackOnlyOnce() {
+        var reads = 0
+        let cursor = SystemResizeCursor(setResize: { true }, setArrow: { true },
+                                        readBackMatches: { reads += 1; return true })
+        for _ in 0..<5 { XCTAssertTrue(cursor.set(owner: "screen-a")) }
+        XCTAssertEqual(reads, 1)
+    }
+
     func testGlyphUsesUnscaledSystemFrameResizeArtworkAndHotspot() throws {
         guard #available(macOS 15.0, *) else { throw XCTSkip("System frame cursor requires macOS 15") }
         _ = NSApplication.shared

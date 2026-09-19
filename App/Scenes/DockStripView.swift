@@ -247,12 +247,13 @@ struct DockStripView: View {
             //
             // overlay 与 background 一样都不影响父视图尺寸——任务条宽度靠 `fittingSize` 量，
             // 千万别改成 ZStack 的兄弟节点，那会把条撑宽。
-            // Drag-to-resize grip: same zones as the right-click host below (one predicate),
-            // claims only a plain left mouse-down there; same `.overlay` reasoning as the menu
-            // host. Mounted beneath it so the menu host stays topmost, though order is moot —
-            // each returns `nil` from `hitTest` for the other's event types.
+            // Drag-to-resize grip: the right-click host's zones kept clear of the chips
+            // (`StripContextMenuZone.gripClaims`), claims only a plain left mouse-down there;
+            // same `.overlay` reasoning as the menu host. Mounted beneath it so the menu host
+            // stays topmost, though order is moot — each returns `nil` from `hitTest` for the
+            // other's event types.
             .overlay(StripResizeGripHost(
-                shouldClaim: { taskbarMenuZoneClaims(atScreen: $0) },
+                shouldClaim: { resizeGripZoneClaims(atScreen: $0) },
                 onEvent: onInteractiveResize,
                 controller: resizeGripController
             ))
@@ -326,7 +327,7 @@ struct DockStripView: View {
             pointerBox.value = pointer
             refreshHoveredEntry(frames: stripHoverFrames, origin: stripRootScreenRect)
             // Grip-zone hover for the ▲▼ glyph; rides the same ≤60Hz poll, `nil` on leave.
-            onInteractiveResize(.hover(pointer.flatMap { taskbarMenuZoneClaims(atScreen: $0) ? $0 : nil }))
+            onInteractiveResize(.hover(pointer.flatMap { resizeGripZoneClaims(atScreen: $0) ? $0 : nil }))
             HoverTrace.pointer(x: pointer?.x ?? -1, chip: hoveredEntryID)
         })
         // 重击(触控板)/中键(鼠标) → 内容预览：本地事件监视器 → 命中反查（handleGesturePreview）。
@@ -1266,7 +1267,7 @@ struct DockStripView: View {
                 .fill(theme.zoneDivider.color)
                 // 宽度是发丝线，恒 1pt 不缩；只有高度跟着档位走。
                 .frame(width: 1, height: Style.dividerHeight * dockScale)
-                .padding(.horizontal, 2 * dockScale)
+                .padding(.horizontal, Style.dividerSidePadding * dockScale)
         case let .pinnedFolder(path):
             let index = 1 + (pinnedFolderStore.folderPaths.firstIndex(of: path) ?? 0)
             let delay = Double(min(index, 6)) * 0.018
@@ -1417,6 +1418,8 @@ private enum Style {
     // 理由见那边的注释。
     static let chipSpacing: CGFloat      = ChipPillMetrics.chipSpacing
     static let dividerHeight: CGFloat    = 20  // zone divider height (pt)
+    /// Each side of the hairline. With `chipSpacing` the divider gap is `StripContextMenuZone.dividerGapWidth`.
+    static let dividerSidePadding: CGFloat = (StripContextMenuZone.dividerGapWidth - 1) / 2 - chipSpacing
 
     // 描边的「顶强底弱」高光已由 DockThemeTokens.panelRimTop / panelRimBottom 正式接管
     //（原先这里的两个常量是零引用的死代码，实际画的是均匀一圈白 0.15）。
