@@ -202,6 +202,7 @@ enum DockGlassPresentation {
     static let configuration = DockLiquidGlassConfiguration.resolve()
     static let dockRefractionEnabled = DebugSwitch.liquidGlassDockRefraction.isEnabled()
     static let diagonalHighlightEnabled = DebugSwitch.liquidGlassDiagonalHighlight.isEnabled()
+    static let highlightBoostEnabled = DebugSwitch.liquidGlassHighlightBoost.isEnabled()
 
     /// The system variant in effect, or `nil` when it is switched off or the private selector is gone.
     static let activeSystemVariant: Int? = {
@@ -234,7 +235,8 @@ enum DockGlassPresentation {
             print("[glass] taskbar composite active, clearTint=\(c.clearTintOpacity), rim(\(rim)), "
                 + "background=\(c.backgroundMaterialOpacity), windowBlur=\(c.windowBlurRadius), "
                 + "systemVariant=\(activeSystemVariant.map(String.init) ?? "off"), "
-                + "dockRefraction=\(dockRefractionEnabled), diagonalHighlight=\(diagonalHighlightEnabled)")
+                + "dockRefraction=\(dockRefractionEnabled), diagonalHighlight=\(diagonalHighlightEnabled), "
+                + "highlightBoost=\(highlightBoostEnabled)")
         } else if #available(macOS 26.0, *) {
             print("[glass] composite unavailable; using NSVisualEffectView")
         } else {
@@ -271,7 +273,9 @@ private struct DockSystemGlassVariantPlate: NSViewRepresentable {
         if matchesDockRefraction || usesDiagonalHighlight {
             observer.attach(to: view,
                             refractionEnabled: matchesDockRefraction,
-                            diagonalHighlightEnabled: usesDiagonalHighlight)
+                            diagonalHighlightEnabled: usesDiagonalHighlight,
+                            highlightAmount: DockGlassPresentation.highlightBoostEnabled
+                                ? DockLiquidGlassConfiguration.boostedHighlightAmount : nil)
         } else {
             observer.stop()
         }
@@ -297,8 +301,10 @@ private final class DockGlassRefractionObserver {
     private var refreshScheduled = false
     private var refractionEnabled = false
     private var diagonalHighlightEnabled = false
+    private var highlightAmount: Double?
 
-    func attach(to view: NSView, refractionEnabled: Bool, diagonalHighlightEnabled: Bool) {
+    func attach(to view: NSView, refractionEnabled: Bool, diagonalHighlightEnabled: Bool,
+                highlightAmount: Double?) {
         if self.view !== view {
             stop()
             self.view = view
@@ -306,6 +312,7 @@ private final class DockGlassRefractionObserver {
         }
         self.refractionEnabled = refractionEnabled
         self.diagonalHighlightEnabled = diagonalHighlightEnabled
+        self.highlightAmount = highlightAmount
         scheduleRefresh()
     }
 
@@ -354,9 +361,10 @@ private final class DockGlassRefractionObserver {
                         self?.scheduleRefresh()
                     }
                 }
-                _ = TEDockGlassSetHighlightAngles(layer,
-                                                 DockLiquidGlassConfiguration.diagonalKeyAngle,
-                                                 DockLiquidGlassConfiguration.diagonalFillAngle)
+                _ = TEDockGlassSetHighlight(layer,
+                                           DockLiquidGlassConfiguration.diagonalKeyAngle,
+                                           DockLiquidGlassConfiguration.diagonalFillAngle,
+                                           highlightAmount.map { NSNumber(value: $0) })
             }
             pending.append(contentsOf: layer.sublayers ?? [])
         }

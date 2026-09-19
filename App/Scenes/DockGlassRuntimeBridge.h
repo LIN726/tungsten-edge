@@ -12,8 +12,8 @@ BOOL TEDockGlassSupportsSystemVariant(void);
 BOOL TEDockGlassSetSystemVariant(id glassView, NSInteger variant);
 /// Copies supported background filters before changing their refraction. Other filters stay intact.
 BOOL TEDockGlassSetRefraction(id layer, double height, double amount);
-/// Copies a supported system rim effect before changing only its light directions.
-BOOL TEDockGlassSetHighlightAngles(id layer, double keyAngle, double fillAngle);
+/// Copies a supported system rim effect; a nil amount preserves native light strength.
+BOOL TEDockGlassSetHighlight(id layer, double keyAngle, double fillAngle, NSNumber * _Nullable amount);
 /// The returned token observes replacement of a system SDF effect until released.
 NSObject * _Nullable TEDockGlassObserveEffect(id layer, void (^onChange)(void));
 

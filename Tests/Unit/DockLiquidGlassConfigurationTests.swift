@@ -60,6 +60,13 @@ final class DockLiquidGlassConfigurationTests: XCTestCase {
         XCTAssertFalse(control.isEnabled(in: [control.rawValue: "0"]))
     }
 
+    func testAcceptedHighlightStrengthIsEnabledWithoutLaunchOverrides() {
+        let control = DebugSwitch.liquidGlassHighlightBoost
+        XCTAssertTrue(control.isEnabled(in: [:]))
+        XCTAssertTrue(control.isEnabled(in: [control.rawValue: "1"]))
+        XCTAssertFalse(control.isEnabled(in: [control.rawValue: "0"]))
+    }
+
     func testCompositeRequiresSystemAPIAndBackgroundPanel() {
         let configuration = resolve(["DOCK_LIQUID_GLASS": "1"])
 

@@ -116,8 +116,9 @@ static BOOL TEDockGlassIsEffectLayer(id layer) {
         [layer respondsToSelector:NSSelectorFromString(@"setEffect:")];
 }
 
-BOOL TEDockGlassSetHighlightAngles(id layer, double keyAngle, double fillAngle) {
+BOOL TEDockGlassSetHighlight(id layer, double keyAngle, double fillAngle, NSNumber *amount) {
     if (!TEDockGlassIsEffectLayer(layer) || !isfinite(keyAngle) || !isfinite(fillAngle)) return NO;
+    if (amount != nil && (!isfinite(amount.doubleValue) || amount.doubleValue < 0 || amount.doubleValue > 1)) return NO;
     @try {
         id effect = [layer valueForKey:@"effect"];
         Class highlightClass = NSClassFromString(@"CASDFKeyFillHighlightEffect");
@@ -125,11 +126,22 @@ BOOL TEDockGlassSetHighlightAngles(id layer, double keyAngle, double fillAngle) 
         for (NSString *selectorName in @[@"keyAngle", @"fillAngle", @"setKeyAngle:", @"setFillAngle:", @"copyWithZone:"]) {
             if (![effect respondsToSelector:NSSelectorFromString(selectorName)]) return NO;
         }
+        if (amount != nil) {
+            for (NSString *selectorName in @[@"keyAmount", @"fillAmount", @"setKeyAmount:", @"setFillAmount:"]) {
+                if (![effect respondsToSelector:NSSelectorFromString(selectorName)]) return NO;
+            }
+        }
         if ([[effect valueForKey:@"keyAngle"] isEqual:@(keyAngle)] &&
-            [[effect valueForKey:@"fillAngle"] isEqual:@(fillAngle)]) return NO;
+            [[effect valueForKey:@"fillAngle"] isEqual:@(fillAngle)] &&
+            (amount == nil || ([[effect valueForKey:@"keyAmount"] isEqual:amount] &&
+                              [[effect valueForKey:@"fillAmount"] isEqual:amount]))) return NO;
         id copy = [effect copy];
         [copy setValue:@(keyAngle) forKey:@"keyAngle"];
         [copy setValue:@(fillAngle) forKey:@"fillAngle"];
+        if (amount != nil) {
+            [copy setValue:amount forKey:@"keyAmount"];
+            [copy setValue:amount forKey:@"fillAmount"];
+        }
         [CATransaction begin];
         @try {
             [CATransaction setDisableActions:YES];

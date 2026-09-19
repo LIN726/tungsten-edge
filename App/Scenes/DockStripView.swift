@@ -1406,8 +1406,12 @@ private enum Style {
     static let cornerRadius: CGFloat   = DockShape.panelCornerRadius
 
     // Content layout
-    static let chipContentInset: CGFloat = 20  // horizontal padding inside blur; > cornerRadius avoids corner-clip
-    static let edgeFadeWidth: CGFloat    = 16  // scroll edge fade-out width (pt)
+    // The icon's transparent artwork margin is equal on both axes and cancels out here.
+    static let chipContentInset: CGFloat = DebugSwitch.stripBalancedInsets.isEnabled()
+        ? (ChipPillMetrics.chipHeight - ChipPillMetrics.cardWidth) / 2
+        : 20
+    // Keep the resting end icons outside the scroll fade when the padding is reduced.
+    static let edgeFadeWidth: CGFloat = min(16, chipContentInset)
     // 真身在 `ChipPillMetrics.chipSpacing`（气泡的邻域判定也要用中心间距，而本 enum 是
     // private，别的文件读不到）。改它必须同步改 `StripContextMenuZone.defaultMinimumGapWidth`，
     // 理由见那边的注释。
