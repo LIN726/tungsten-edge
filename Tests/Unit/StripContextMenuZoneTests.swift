@@ -137,11 +137,44 @@ final class StripContextMenuZoneTests: XCTestCase {
         XCTAssertTrue(claims(x: 114), "right-click keeps the full gap")
     }
 
-    func testGripKeepsClearOfTheEndIcons() {
-        XCTAssertTrue(gripClaims(x: 10))
-        XCTAssertFalse(gripClaims(x: 18))
-        XCTAssertTrue(gripClaims(x: 250))
-        XCTAssertFalse(gripClaims(x: 157))
+    /// With a divider on the bar the grip lives in its gap alone; right-click keeps the ends.
+    func testGripLeavesTheEndInsetsWhenADividerExists() {
+        XCTAssertFalse(gripClaims(x: 10))
+        XCTAssertFalse(gripClaims(x: 250))
+        XCTAssertTrue(claims(x: 10))
+        XCTAssertTrue(claims(x: 250))
+    }
+
+    /// A single-zone bar has no divider, so the end insets are the only grip — still kept clear
+    /// of the end icons.
+    func testGripFallsBackToTheEndInsetsWithoutADivider() {
+        let singleZone = Array(chips.prefix(2))   // 20...60, 62...102
+        func grip(_ x: CGFloat) -> Bool {
+            StripContextMenuZone.gripClaims(
+                point: CGPoint(x: x, y: 26),
+                chipFrames: singleZone,
+                bounds: bounds,
+                minimumGapWidth: gap,
+                chipClearance: StripContextMenuZone.defaultGripChipClearance
+            )
+        }
+        XCTAssertTrue(grip(10))
+        XCTAssertFalse(grip(18), "next to the first icon")
+        XCTAssertTrue(grip(250))
+        XCTAssertFalse(grip(104), "next to the last icon")
+        XCTAssertFalse(grip(61), "plain chip gap")
+    }
+
+    func testHasDividerGapIgnoresPlainGapsAndOverlaps() {
+        XCTAssertTrue(StripContextMenuZone.hasDividerGap(chipFrames: chips, minimumGapWidth: gap))
+        XCTAssertFalse(StripContextMenuZone.hasDividerGap(chipFrames: Array(chips.prefix(2)), minimumGapWidth: gap))
+        XCTAssertFalse(StripContextMenuZone.hasDividerGap(chipFrames: [], minimumGapWidth: gap))
+        let overlapping = [
+            CGRect(x: 20, y: 0, width: 80, height: 54),   // 20...100
+            CGRect(x: 30, y: 0, width: 40, height: 54),   // 30...70, inside the first
+            CGRect(x: 102, y: 0, width: 40, height: 54),  // 2pt after the first, 32pt after the second
+        ]
+        XCTAssertFalse(StripContextMenuZone.hasDividerGap(chipFrames: overlapping, minimumGapWidth: gap))
     }
 
     func testGripNeverClaimsWhatRightClickRejects() {

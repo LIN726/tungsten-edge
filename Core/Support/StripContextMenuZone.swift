@@ -69,6 +69,10 @@ enum StripContextMenuZone {
     /// The drag-to-resize grip: the right-click zones minus `chipClearance` on each side of
     /// every chip (x only — the gap test above is x only too). The right-click zone itself
     /// stays the full gap.
+    ///
+    /// The end insets are the grip's **fallback only**: while any divider gap exists the grip
+    /// lives there alone, and the ends take over when the bar has a single zone and therefore
+    /// no divider. Right-click keeps the ends either way.
     static func gripClaims(
         point: CGPoint,
         chipFrames: [CGRect],
@@ -78,8 +82,23 @@ enum StripContextMenuZone {
     ) -> Bool {
         guard claims(point: point, chipFrames: chipFrames, bounds: bounds,
                      minimumGapWidth: minimumGapWidth) else { return false }
-        return !chipFrames.contains {
+        guard !chipFrames.contains(where: {
             point.x > $0.minX - chipClearance && point.x < $0.maxX + chipClearance
+        }) else { return false }
+        let isEndInset = !chipFrames.contains { $0.minX <= point.x }
+            || !chipFrames.contains { $0.maxX >= point.x }
+        return !isEndInset || !hasDividerGap(chipFrames: chipFrames, minimumGapWidth: minimumGapWidth)
+    }
+
+    /// Whether any chip-to-chip gap is wide enough to be a zone divider's — the same running-max
+    /// walk as `claims`, so an overlap never reads as a gap.
+    static func hasDividerGap(chipFrames: [CGRect], minimumGapWidth: CGFloat) -> Bool {
+        let sorted = chipFrames.sorted { $0.minX < $1.minX }
+        guard var gapStart = sorted.first?.maxX else { return false }
+        for frame in sorted.dropFirst() {
+            if frame.minX - gapStart >= minimumGapWidth { return true }
+            gapStart = max(gapStart, frame.maxX)
         }
+        return false
     }
 }

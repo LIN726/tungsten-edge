@@ -68,8 +68,8 @@ struct DockStripView: View {
     var onWindowTitleTooltipEvent: (WindowTitleTooltipEvent) -> Void = { _ in }
     /// 右键任务条底板 → 弹钨极菜单（`StatusMenuController` 持有那个菜单）。
     var onRequestTaskbarMenu: (NSEvent, NSView) -> Void = { _, _ in }
-    /// Drag-to-resize on the bar's grip zones (end insets + divider gaps, the same zones the
-    /// background right-click claims). `PanelCoordinator` injects both; the defaults are the
+    /// Drag-to-resize on the bar's grip zones (the divider gaps; the end insets only when the
+    /// bar has no divider — `StripContextMenuZone.gripClaims`). `PanelCoordinator` injects both; the defaults are the
     /// correct omission for a strip with no panel behind it (the drag-carrier snapshot).
     var onInteractiveResize: (StripResizeGripEvent) -> Void = { _ in }
     var resizeGripController: StripResizeGripController? = nil
