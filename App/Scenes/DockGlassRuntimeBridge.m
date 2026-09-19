@@ -3,6 +3,7 @@
 #import <AppKit/AppKit.h>
 #import <dlfcn.h>
 #import <limits.h>
+#import <QuartzCore/QuartzCore.h>
 
 typedef uint32_t (*MainConnectionIDFunction)(void);
 typedef int32_t (*SetWindowBlurFunction)(uint32_t, uint32_t, uint32_t);
@@ -65,6 +66,44 @@ BOOL TEDockGlassSetSystemVariant(id glassView, NSInteger variant) {
         IMP implementation = [glassView methodForSelector:selector];
         ((void (*)(id, SEL, NSInteger))implementation)(glassView, selector, variant);
         return YES;
+    } @catch (__unused NSException *exception) {
+        return NO;
+    }
+}
+
+BOOL TEDockGlassSetRefraction(id candidate, double height, double amount) {
+    if (![candidate isKindOfClass:CALayer.class] || !isfinite(height) || !isfinite(amount) || height <= 0) {
+        return NO;
+    }
+    CALayer *layer = candidate;
+    @try {
+        NSMutableArray *filters = [layer.filters mutableCopy];
+        BOOL changed = NO;
+        for (NSUInteger index = 0; index < filters.count; index++) {
+            id filter = filters[index];
+            if (![filter respondsToSelector:NSSelectorFromString(@"type")] ||
+                ![[filter valueForKey:@"type"] isEqual:@"glassBackground"]) continue;
+            if (![filter respondsToSelector:NSSelectorFromString(@"inputKeys")] ||
+                ![filter respondsToSelector:@selector(copyWithZone:)]) continue;
+            NSArray *keys = [filter valueForKey:@"inputKeys"];
+            NSString *heightKey = @"inputInnerRefractionHeight";
+            NSString *amountKey = @"inputInnerRefractionAmount";
+            if (![keys containsObject:heightKey] || ![keys containsObject:amountKey]) continue;
+            if ([[filter valueForKey:heightKey] isEqual:@(height)] &&
+                [[filter valueForKey:amountKey] isEqual:@(amount)]) continue;
+            id copy = [filter copy];
+            [copy setValue:@(height) forKey:heightKey];
+            [copy setValue:@(amount) forKey:amountKey];
+            filters[index] = copy;
+            changed = YES;
+        }
+        if (changed) {
+            [CATransaction begin];
+            [CATransaction setDisableActions:YES];
+            layer.filters = filters;
+            [CATransaction commit];
+        }
+        return changed;
     } @catch (__unused NSException *exception) {
         return NO;
     }

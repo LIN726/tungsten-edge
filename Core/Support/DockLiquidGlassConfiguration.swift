@@ -91,6 +91,11 @@ struct DockLiquidGlassConfiguration: Equatable {
 
     static let dockSystemVariant = 3
 
+    // The native Dock resolves its material at Size.medium, independently of the bar height.
+    // These are optical distances, not panel geometry; do not scale them with the bar.
+    static let dockInnerRefractionHeight = 13.28
+    static let dockInnerRefractionAmount = -29.88
+
     /// `DockPanelBackdrop`'s legacy 2pt outset + clip would cut off the variant plate's own rim.
     static func backdropOutset(usesLiquidGlass: Bool, usesSystemVariant: Bool) -> CGFloat {
         usesLiquidGlass && usesSystemVariant ? 0 : 2

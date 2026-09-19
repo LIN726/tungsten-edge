@@ -178,7 +178,8 @@ struct DockStripView: View {
             // macOS 26 的 Liquid Glass 由统一底板接管；默认关闭，旧系统与未开关时仍是原毛玻璃。
             DockPanelBackdrop(theme: theme,
                               cornerRadius: taskbarCornerRadius,
-                              usesLiquidGlass: usesLiquidGlass)
+                              usesLiquidGlass: usesLiquidGlass,
+                              matchesDockRefraction: true)
 
             // 玻璃厚度感：材质之上、内容之下。**默认关**，`DOCK_PANEL_THICKNESS=1` 才开
             //（未验收的效果一律 opt-in，见 DockEffectSwitches）。深色则两层保险都不画，

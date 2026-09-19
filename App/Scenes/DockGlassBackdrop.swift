@@ -14,11 +14,17 @@ struct DockGlassBackdrop: View {
     var cornerRadius: CGFloat = DockShape.panelCornerRadius
     var saturation: Double = 1.0
     var thicknessEnabled: Bool = false
+    var matchesDockRefraction: Bool = false
 
     var body: some View {
         Group {
             if #available(macOS 26.0, *), usesLiquidGlass, let variant = DockGlassPresentation.activeSystemVariant {
-                DockSystemGlassVariantPlate(cornerRadius: cornerRadius, variant: variant)
+                DockSystemGlassVariantPlate(
+                    cornerRadius: cornerRadius,
+                    variant: variant,
+                    matchesDockRefraction: matchesDockRefraction && DockGlassPresentation.dockRefractionEnabled
+                        && variant == DockLiquidGlassConfiguration.dockSystemVariant
+                )
                     .allowsHitTesting(false)
             } else if #available(macOS 26.0, *), usesLiquidGlass {
                 DockLiquidGlassPlate(
@@ -58,13 +64,15 @@ struct DockPanelBackdrop: View {
     let theme: DockThemeTokens
     let cornerRadius: CGFloat
     let usesLiquidGlass: Bool
+    var matchesDockRefraction: Bool = false
 
     var body: some View {
         DockGlassBackdrop(material: theme.effectivePanelMaterial,
                           usesLiquidGlass: usesLiquidGlass,
                           cornerRadius: cornerRadius,
                           saturation: theme.effectiveBackdropSaturation,
-                          thicknessEnabled: theme.drawsEffectiveThickness)
+                          thicknessEnabled: theme.drawsEffectiveThickness,
+                          matchesDockRefraction: matchesDockRefraction)
             .padding(-DockLiquidGlassConfiguration.backdropOutset(
                 usesLiquidGlass: usesLiquidGlass,
                 usesSystemVariant: DockGlassPresentation.usesSystemVariant))
@@ -190,6 +198,7 @@ private extension View {
 
 enum DockGlassPresentation {
     static let configuration = DockLiquidGlassConfiguration.resolve()
+    static let dockRefractionEnabled = DebugSwitch.liquidGlassDockRefraction.isEnabled()
 
     /// The system variant in effect, or `nil` when it is switched off or the private selector is gone.
     static let activeSystemVariant: Int? = {
@@ -221,7 +230,8 @@ enum DockGlassPresentation {
                 + "cut=\(c.borderCornerCut) spread=\(c.borderCornerSpread) w=\(c.borderLineWidth)"
             print("[glass] taskbar composite active, clearTint=\(c.clearTintOpacity), rim(\(rim)), "
                 + "background=\(c.backgroundMaterialOpacity), windowBlur=\(c.windowBlurRadius), "
-                + "systemVariant=\(activeSystemVariant.map(String.init) ?? "off")")
+                + "systemVariant=\(activeSystemVariant.map(String.init) ?? "off"), "
+                + "dockRefraction=\(dockRefractionEnabled)")
         } else if #available(macOS 26.0, *) {
             print("[glass] composite unavailable; using NSVisualEffectView")
         } else {
@@ -235,22 +245,89 @@ enum DockGlassPresentation {
 private struct DockSystemGlassVariantPlate: NSViewRepresentable {
     let cornerRadius: CGFloat
     let variant: Int
+    let matchesDockRefraction: Bool
+
+    func makeCoordinator() -> DockGlassRefractionObserver { DockGlassRefractionObserver() }
 
     func makeNSView(context: Context) -> NSGlassEffectView {
         let view = NSGlassEffectView()
         view.contentView = NSView()
         apply(to: view)
+        if matchesDockRefraction { context.coordinator.attach(to: view) }
         return view
     }
 
     // SwiftUI re-runs update, never re-creates the view — the radius follows drag-to-resize here.
     func updateNSView(_ view: NSGlassEffectView, context: Context) {
         apply(to: view)
+        if matchesDockRefraction { context.coordinator.attach(to: view) }
+    }
+
+    static func dismantleNSView(_ view: NSGlassEffectView, coordinator: DockGlassRefractionObserver) {
+        coordinator.stop()
     }
 
     private func apply(to view: NSGlassEffectView) {
         view.cornerRadius = cornerRadius
         _ = TEDockGlassSetSystemVariant(view, variant)
+    }
+}
+
+/// AppKit replaces the glass filter when its material or geometry changes. Follow those changes
+/// without polling, and never retain or mutate a filter owned by the system.
+private final class DockGlassRefractionObserver {
+    private weak var view: NSView?
+    private var viewObservation: NSKeyValueObservation?
+    private var layerObservations: [ObjectIdentifier: [NSKeyValueObservation]] = [:]
+    private var refreshScheduled = false
+
+    func attach(to view: NSView) {
+        if self.view !== view {
+            stop()
+            self.view = view
+            viewObservation = view.observe(\.layer) { [weak self] _, _ in self?.scheduleRefresh() }
+        }
+        scheduleRefresh()
+    }
+
+    func stop() {
+        view = nil
+        viewObservation = nil
+        layerObservations.removeAll()
+    }
+
+    private func scheduleRefresh() {
+        guard !refreshScheduled else { return }
+        refreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.refreshScheduled = false
+            self.refresh()
+        }
+    }
+
+    private func refresh() {
+        guard let root = view?.layer else {
+            layerObservations.removeAll()
+            return
+        }
+        var pending = [root]
+        var seen = Set<ObjectIdentifier>()
+        while let layer = pending.popLast() {
+            let id = ObjectIdentifier(layer)
+            guard seen.insert(id).inserted else { continue }
+            if layerObservations[id] == nil {
+                layerObservations[id] = [
+                    layer.observe(\.sublayers) { [weak self] _, _ in self?.scheduleRefresh() },
+                    layer.observe(\.filters) { [weak self] _, _ in self?.scheduleRefresh() }
+                ]
+            }
+            _ = TEDockGlassSetRefraction(layer,
+                                        DockLiquidGlassConfiguration.dockInnerRefractionHeight,
+                                        DockLiquidGlassConfiguration.dockInnerRefractionAmount)
+            pending.append(contentsOf: layer.sublayers ?? [])
+        }
+        layerObservations = layerObservations.filter { seen.contains($0.key) }
     }
 }
 

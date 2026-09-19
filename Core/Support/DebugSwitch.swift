@@ -43,6 +43,8 @@ enum DebugSwitch: String, CaseIterable, Sendable {
     case dragLanding = "DOCK_DRAG_LANDING"
     /// macOS 26 Liquid Glass 底板；=0 退回毛玻璃
     case liquidGlass = "DOCK_LIQUID_GLASS"
+    /// Fixed-scale background refraction on the taskbar and drawer capsule; =0 disables it.
+    case liquidGlassDockRefraction = "DOCK_LIQUID_GLASS_DOCK_REFRACTION"
     /// 桌面 / 全屏空间切换意图监听（session 事件 tap）
     case spaceIntent = "DOCK_SPACE_INTENT"
     /// 原生全屏进入前的预测让位
@@ -157,7 +159,7 @@ enum DebugSwitch: String, CaseIterable, Sendable {
         case .eventAxAsync, .reconcileSkip, .scanGate, .frontmostCache,
              .cgSnapshotReuse, .axElementCache, .skylightFocus, .fastWindowHandle,
              .badgeTargeted, .badgePause, .minimizeSettleGate, .handoffActiveGrace,
-             .handoffActivePrediction, .staleActiveGuard, .dragLanding, .liquidGlass,
+             .handoffActivePrediction, .staleActiveGuard, .dragLanding, .liquidGlass, .liquidGlassDockRefraction,
              .spaceIntent, .fullscreenIntent, .fullscreenSlsVerdict, .spaceMembershipRepair,
              .overlaySpace, .scrollReverser, .windowLift, .windowLiftAnim,
              .menuHoverSuspend, .hoverMonitorLean, .stripHoverPoll, .resizeCursor, .chipPressDown, .titleSettle:

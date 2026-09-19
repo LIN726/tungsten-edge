@@ -10,5 +10,7 @@ BOOL TEDockGlassSetWindowBackgroundBlurRadius(NSInteger windowNumber, uint32_t r
 BOOL TEDockGlassSupportsSystemVariant(void);
 /// Applies a private glass variant to an `NSGlassEffectView`. Returns NO and does nothing if unsupported.
 BOOL TEDockGlassSetSystemVariant(id glassView, NSInteger variant);
+/// Copies supported background filters before changing their refraction. Other filters stay intact.
+BOOL TEDockGlassSetRefraction(id layer, double height, double amount);
 
 NS_ASSUME_NONNULL_END

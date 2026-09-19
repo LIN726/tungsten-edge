@@ -58,7 +58,8 @@ struct DrawerCapsuleButton: View {
         return ZStack {
             DockPanelBackdrop(theme: theme,
                               cornerRadius: DockShape.panelCornerRadius * dockScale,
-                              usesLiquidGlass: usesLiquidGlass)
+                              usesLiquidGlass: usesLiquidGlass,
+                              matchesDockRefraction: true)
 
             // 悬停 + 点击反馈只作用在内层预览内容（九宫格 / 空态符号）上，外框（毛玻璃 + 描边）不动。
             // 围绕胶囊中心原地缩放，动画结束精确归位、不留持久位移。

@@ -46,6 +46,13 @@ final class DockLiquidGlassConfigurationTests: XCTestCase {
         }
     }
 
+    func testAcceptedDockRefractionIsEnabledWithoutLaunchOverrides() {
+        let control = DebugSwitch.liquidGlassDockRefraction
+        XCTAssertTrue(control.isEnabled(in: [:]))
+        XCTAssertTrue(control.isEnabled(in: [control.rawValue: "1"]))
+        XCTAssertFalse(control.isEnabled(in: [control.rawValue: "0"]))
+    }
+
     func testCompositeRequiresSystemAPIAndBackgroundPanel() {
         let configuration = resolve(["DOCK_LIQUID_GLASS": "1"])
 
