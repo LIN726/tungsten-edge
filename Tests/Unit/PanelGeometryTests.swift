@@ -251,10 +251,10 @@ final class PanelGeometryTests: XCTestCase {
     }
 
     func testCapsuleGridContentFitsEveryHeight() {
-        // 九宫格 3 列：3×icon + 2×spacing + 2×padding 必须塞进胶囊宽度，最矮的 40pt 也是。
+        // 2 × 2 preview: columns × icon + spacing + 2 × padding must fit the capsule at every height.
+        XCTAssertEqual(DrawerCapsulePreviewMetrics.limit, 4)
         for height in sampleHeights {
-            let s = height.scale
-            let content = (3 * 9 + 2 * 4 + 2 * 6) * s
+            let content = DrawerCapsulePreviewMetrics.contentWidth * height.scale
             XCTAssertLessThanOrEqual(content, height.metrics.capsuleWidth, "\(height.points)pt 胶囊内容超宽")
         }
     }

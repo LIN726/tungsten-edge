@@ -29,14 +29,8 @@ struct DrawerCapsuleButton: View {
     /// 点击确认脉冲：按压回弹，纯视图层信号，不喂 planner/frontmost（照搬 ChipView）。
     @State private var isTapPressed = false
 
-    // 九宫格 3 列：3×icon + 2×spacing + 2×padding 必须塞得进胶囊宽度（= 面板高度）。
-    // 中档 3×9 + 2×4 + 2×6 = 47pt，小档胶囊只有 44pt，所以这三个值都必须跟着缩。
-    private static let iconSize: CGFloat = 9
-    private static let gridSpacing: CGFloat = 4
-    private static let gridPadding: CGFloat = 6
-
-    private var iconSize: CGFloat { Self.iconSize * dockScale }
-    private var gridSpacing: CGFloat { Self.gridSpacing * dockScale }
+    private var iconSize: CGFloat { DrawerCapsulePreviewMetrics.iconSize * dockScale }
+    private var gridSpacing: CGFloat { DrawerCapsulePreviewMetrics.gridSpacing * dockScale }
 
     private var folderIDs: [String] {
         let placements = AppMembershipProjection.drawerMembers(drawerIDs: drawerStore.bundleIDs)
@@ -44,12 +38,13 @@ struct DrawerCapsuleButton: View {
         return AppMembershipProjection.drawerPreview(
             drawerIDs: ordered,
             keptIDs: keptAppStore.bundleIDs,
-            runningIDs: runningApplicationStore.runningBundleIDs
+            runningIDs: runningApplicationStore.runningBundleIDs,
+            limit: DrawerCapsulePreviewMetrics.limit
         )
     }
 
     /// 胶囊是**另一棵**长期存活的 NSHostingView 根视图，必须自己观察同一个 store，
-    /// 否则换档时任务条变了、胶囊里的九宫格还停在旧尺寸。
+    /// 否则换档时任务条变了、胶囊里的四宫格还停在旧尺寸。
     private var dockScale: CGFloat { settingsStore.dockPanelHeight.scale }
 
     var body: some View {
@@ -61,7 +56,7 @@ struct DrawerCapsuleButton: View {
                               usesLiquidGlass: usesLiquidGlass,
                               matchesDockRefraction: true)
 
-            // 悬停 + 点击反馈只作用在内层预览内容（九宫格 / 空态符号）上，外框（毛玻璃 + 描边）不动。
+            // 悬停 + 点击反馈只作用在内层预览内容（四宫格 / 空态符号）上，外框（毛玻璃 + 描边）不动。
             // 围绕胶囊中心原地缩放，动画结束精确归位、不留持久位移。
             Group {
                 if folderIDs.isEmpty {
@@ -70,7 +65,7 @@ struct DrawerCapsuleButton: View {
                         .foregroundStyle(theme.capsuleGlyph.color)
                 } else {
                     LazyVGrid(
-                        columns: Array(repeating: GridItem(.fixed(iconSize), spacing: gridSpacing), count: 3),
+                        columns: Array(repeating: GridItem(.fixed(iconSize), spacing: gridSpacing), count: DrawerCapsulePreviewMetrics.columns),
                         spacing: gridSpacing
                     ) {
                         ForEach(folderIDs, id: \.self) { id in
@@ -81,12 +76,12 @@ struct DrawerCapsuleButton: View {
                                 .clipShape(RoundedRectangle(cornerRadius: iconSize / 4, style: .continuous))
                         }
                     }
-                    .padding(Self.gridPadding * dockScale)
+                    .padding(DrawerCapsulePreviewMetrics.gridPadding * dockScale)
                 }
             }
             .scaleEffect(showsHover ? 1.07 : 1.0)
             .animation(.easeOut(duration: 0.12), value: showsHover)
-            // 按压只作用在里面的九宫格上、外框保持静止（owner 2026-06-21）——所以缩放挂在这里，
+            // 按压只作用在里面的四宫格上、外框保持静止（owner 2026-06-21）——所以缩放挂在这里，
             // 手势挂在最外层（见下方 chipPressGesture）。
             .chipPressScale(isTapPressed)
         }
@@ -95,7 +90,7 @@ struct DrawerCapsuleButton: View {
                       lineWidth: theme.panelRimLineWidth,
                       usesLiquidGlass: usesLiquidGlass)
         // 反馈仅作用于内层预览内容（见上方 Group）；这里与面板同高的可见层只负责 hover 命中——
-        // 鼠标移到胶囊任意处都触发，动的是里面的九宫格，外框保持静止。
+        // 鼠标移到胶囊任意处都触发，动的是里面的四宫格，外框保持静止。
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         // 拖卡悬到胶囊上：**微微发光 + 极轻微放大**（去掉原来生硬的白圈描边,owner 2026-06-21）。

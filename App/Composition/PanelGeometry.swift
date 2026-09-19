@@ -84,6 +84,21 @@ struct PanelLayoutMetrics: Equatable {
     static let tungstenEdge = DockPanelHeight.native.metrics
 }
 
+/// The drawer capsule's four-up preview (2 × 2). Values are at the native height and scale with the
+/// bar: `columns × icon + spacing + 2 × padding` must fit `capsuleWidth` at every height
+/// (`PanelGeometryTests.testCapsuleGridContentFitsEveryHeight`).
+enum DrawerCapsulePreviewMetrics {
+    static let columns = 2
+    static let limit = columns * columns
+    static let iconSize: CGFloat = 17
+    static let gridSpacing: CGFloat = 4
+    static let gridPadding: CGFloat = 7
+
+    static var contentWidth: CGFloat {
+        CGFloat(columns) * iconSize + CGFloat(columns - 1) * gridSpacing + 2 * gridPadding
+    }
+}
+
 struct PanelScreenGeometry: Equatable {
     var frame: CGRect
     var visibleFrame: CGRect
