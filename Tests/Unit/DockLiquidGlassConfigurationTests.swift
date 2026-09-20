@@ -24,6 +24,7 @@ final class DockLiquidGlassConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.windowBlurRadius, 0, "窗口级模糊不跟圆角走，会在四角糊出方块；通透度不靠它")
         XCTAssertEqual(configuration.contentInset, 4)
         XCTAssertEqual(configuration.backgroundPlateOpacity, 0.001)
+        XCTAssertEqual(configuration.systemVariant, 3, "the accepted plate is the Dock's own glass material")
         XCTAssertEqual(
             configuration.renderPath(isGlassAPIAvailable: true, isCompositeAvailable: true),
             .layeredTaskbar
@@ -43,6 +44,27 @@ final class DockLiquidGlassConfigurationTests: XCTestCase {
         for value in ["", "1", "true", "yes", "2"] {
             XCTAssertTrue(resolve(["DOCK_LIQUID_GLASS": value]).isEnabled)
         }
+    }
+
+    func testAcceptedDockRefractionIsEnabledWithoutLaunchOverrides() {
+        let control = DebugSwitch.liquidGlassDockRefraction
+        XCTAssertTrue(control.isEnabled(in: [:]))
+        XCTAssertTrue(control.isEnabled(in: [control.rawValue: "1"]))
+        XCTAssertFalse(control.isEnabled(in: [control.rawValue: "0"]))
+    }
+
+    func testAcceptedDiagonalHighlightIsEnabledWithoutLaunchOverrides() {
+        let control = DebugSwitch.liquidGlassDiagonalHighlight
+        XCTAssertTrue(control.isEnabled(in: [:]))
+        XCTAssertTrue(control.isEnabled(in: [control.rawValue: "1"]))
+        XCTAssertFalse(control.isEnabled(in: [control.rawValue: "0"]))
+    }
+
+    func testAcceptedHighlightStrengthIsEnabledWithoutLaunchOverrides() {
+        let control = DebugSwitch.liquidGlassHighlightBoost
+        XCTAssertTrue(control.isEnabled(in: [:]))
+        XCTAssertTrue(control.isEnabled(in: [control.rawValue: "1"]))
+        XCTAssertFalse(control.isEnabled(in: [control.rawValue: "0"]))
     }
 
     func testCompositeRequiresSystemAPIAndBackgroundPanel() {
@@ -124,8 +146,8 @@ final class DockLiquidGlassConfigurationTests: XCTestCase {
         }
     }
 
-    /// 背景窗口 = 内容窗口减掉 20pt 阴影透明边后的可视底板，高度由 `DockSize.metrics` 决定
-    /// （92 − 2×20 = 52 = 中档面板高），**不再有玻璃自带的第二套高度**。
+    /// 背景窗口 = 内容窗口减掉 20pt 阴影透明边后的可视底板，高度由 `DockPanelHeight.metrics` 决定
+    /// （92 − 2×20 = 52 是旧中档面板高，这里只是个几何样本），**不再有玻璃自带的第二套高度**。
     func testBackgroundFrameIsTheVisiblePlateInsideTheShadowPadding() {
         XCTAssertEqual(
             DockLiquidGlassPanelGeometry.backgroundFrame(
@@ -182,5 +204,26 @@ final class DockLiquidGlassConfigurationTests: XCTestCase {
 
     private func resolve(_ environment: [String: String]) -> DockLiquidGlassConfiguration {
         DockLiquidGlassConfiguration.resolve(environment: environment)
+    }
+
+    func testSystemVariantParsesOffAndFallsBackToTheDockMaterial() {
+        XCTAssertNil(resolve(["DOCK_LIQUID_GLASS_SYSTEM_VARIANT": " off "]).systemVariant)
+        XCTAssertEqual(resolve(["DOCK_LIQUID_GLASS_SYSTEM_VARIANT": "0"]).systemVariant, 0)
+        XCTAssertEqual(resolve(["DOCK_LIQUID_GLASS_SYSTEM_VARIANT": "40"]).systemVariant, 40)
+        for bad in ["", "abc", "-1", "41", "3.5"] {
+            XCTAssertEqual(resolve(["DOCK_LIQUID_GLASS_SYSTEM_VARIANT": bad]).systemVariant, 3, bad)
+        }
+    }
+
+    /// The variant plate draws its own rim and casts no shadow, so the 2pt outset (which clips
+    /// that rim) and the strip shadow go — but only when glass and the variant are both live.
+    func testOutsetAndStripShadowFollowTheSystemVariant() {
+        typealias C = DockLiquidGlassConfiguration
+        XCTAssertEqual(C.backdropOutset(usesLiquidGlass: true, usesSystemVariant: true), 0)
+        XCTAssertFalse(C.stripShadowVisible(usesLiquidGlass: true, usesSystemVariant: true))
+        for (glass, variant) in [(true, false), (false, true), (false, false)] {
+            XCTAssertEqual(C.backdropOutset(usesLiquidGlass: glass, usesSystemVariant: variant), 2)
+            XCTAssertTrue(C.stripShadowVisible(usesLiquidGlass: glass, usesSystemVariant: variant))
+        }
     }
 }

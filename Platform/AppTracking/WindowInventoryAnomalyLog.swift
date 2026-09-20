@@ -193,6 +193,8 @@ enum InventorySeatReleasedReason: String, Codable {
     /// Historical schema value. Current inventory code must not infer closure from AX absence.
     case absentBeyondGrace
     case phantomHealed
+    /// Seat merged into another window as a native tab (TabMergeDecision).
+    case mergedIntoTabbedWindow
 }
 
 /// 座位释放日志载荷。批量 `processGone` 路径发生在 `reconcileSeats` 之外，没有本轮 AX/CG 采样，

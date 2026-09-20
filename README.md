@@ -37,6 +37,7 @@ The drawer, unread badges for messaging apps, pinned folders, a taskbar on every
 ## Features
 
 - **Window-level taskbar** — one card per window; multi-window apps split into multiple cards; click to switch / minimize.
+- **Card states you can read at a glance** — a greyed-out title means that window is not on the desktop right now (minimized, or its whole app is hidden); click the card and it comes back. Windows on other desktops (Spaces) are **not** greyed: they stay listed on the taskbar, and clicking one switches you to that desktop.
 - **Smart native-tab merging** — apps where "tabs are windows" (Ghostty, Finder) keep a stable card while you switch tabs: it won't jump around or split.
 - **App drawer** — stash rarely-used apps into a drawer on the right to keep the strip clean; pin favorites in the drawer to use it as a launcher.
 - **Drag to organize** — reorder cards by dragging; drag a card into the drawer to stash it; drag it back out and it lands exactly where you drop it.
@@ -80,14 +81,11 @@ macOS suppresses key events from global event taps while Secure Input is active,
 ### Option 2 — Homebrew (for technical users)
 
 ```bash
-brew install --cask moonbai-studio/tungsten-edge/tungsten-edge
+brew install --cask tungsten-edge
 ```
 
-> One command is enough — Homebrew taps the repository, trusts the cask and installs it.
-> If you would rather use the short token `brew install --cask tungsten-edge` later, run
-> `brew tap moonbai-studio/tungsten-edge` and `brew trust moonbai-studio/tungsten-edge` first:
-> without the tap name on the command line, the short token fails with
-> `Refusing to load cask ... from untrusted tap`.
+> Tungsten Edge is in the official Homebrew cask registry. The older command
+> `brew install --cask moonbai-studio/tungsten-edge/tungsten-edge` still works and installs the same official cask.
 
 ## Grant Accessibility permission
 
@@ -114,11 +112,11 @@ Preferences live in two places, and the split is deliberate: the **status menu**
 - **Open at Login** — the first menu item. On macOS 13 and later this goes through the system's Login Items; if macOS asks for approval, open Login Items in System Settings and approve Tungsten Edge there. On macOS 12 it is written to System Preferences → Users & Groups → Login Items, where you can also see and remove it.
 - **Tungsten Edge (⌥⇧⌘D to show/hide)** — a greyed-out section header, not a clickable command. Below it sits a compact slider for the taskbar's own wake delay: `Always Visible`, `0.1s`–`3.0s`, or `Never Wake`. The global `⌥⇧⌘D` shortcut switches between always-visible and your last auto-hide delay; it is the Dock's `⌥⌘D` plus Shift, which also releases the older `⌥⌘E` back to Safari and Finder. You can record a different combination in Settings → General. If the shortcut cannot be registered, the menu simply stops showing the key hint.
 - **The Dock (⌥⌘D to show/hide)** — likewise a section header. `⌥⌘D` belongs to macOS, so it is named here as plain text rather than claimed as a shortcut. Its slider sets the **Dock's** wake delay (`Always Visible`, `0.1s`–`3.0s`, `Never Wake` — drag to `Never Wake` and the Dock stops popping up at the screen edge entirely). Moving it stages a draft and reveals a confirm row; nothing is written until you press it, because every write restarts the Dock and flashes the screen.
-- **Show taskbar on ▸** — appears only with two or more displays, and holds two groups. **On one display**: the default **Follow the mouse**, or pin the taskbar to a named screen, after which resting the pointer at another screen's bottom edge no longer moves it; unplug the pinned screen and the bar falls back to the main display, returning when you plug it back in. **One taskbar per display**: every display gets its own bar, and **Show only this display's windows** then narrows each bar to the windows sitting on that display.
-- **Taskbar Size ▸** — four tiers (Small / Medium / Large / Extra Large) that scale the taskbar and its capsule together: icons, labels, spacing, corner radius and bar height all follow. Medium is the default and matches the real Dock's height. Switching applies instantly; an open drawer closes so it can be re-measured. The drawer's own contents and the folder / shelf popups keep their current size.
+- **Single/Multi-Display Mode ▸** — appears only with two or more displays, and holds two groups. **Single-display mode**: the default is **Follows the pointer** — rest the pointer at another screen's bottom edge and the bar moves there; or choose **Pinned to** a named screen, after which resting at another screen's bottom edge no longer moves it; unplug the pinned screen and the bar falls back to the main display, returning when you plug it back in. **Multi-display mode**: every display gets its own bar — **Mirrored bars** all show the same content, while **Separate bar per display** narrows each bar to the windows sitting on that display (it filters by *display*, not by desktop — windows on your other Spaces are still listed). On a fresh install, the first time you connect a second display it switches to **Multi-display mode / Separate bar per display** on its own — once only, and you can change it back here at any time. Upgrades keep whatever you already had.
+- **Taskbar height** — not a menu item: you drag the bar itself, like the real Dock's divider. Press on the gap beside a zone divider and drag up or down — or, on a bar with no divider, on either end (the pointer turns into the up-down resize cursor there). The bar and its capsule scale together — icons, labels, spacing, corner radius and bar height all follow — continuously between 40 and 80 pt; 54 pt matches the real Dock. An open drawer closes first so it can be re-measured. The drawer's own contents and the folder / shelf popups keep their current size.
 - **Show Shelf** — shows or hides the shelf chip. Unchecking it only hides the chip; stashed file references are kept and come back when you check it again. Note that with the shelf hidden *and* no pinned folders, the whole folder zone disappears, so the taskbar has no external-file drop target and no **Add Folder…** entry — check it back on to get them.
 - **Show app name on hover** — **off by default**. Turn it on and moving the pointer across the taskbar pops up app names; with it off you get a slight lift instead.
-- **Keep maximized windows above the taskbar** — lifts the bottom edge of a screen-filling window above the taskbar, so the always-visible bar does not cover it. **On by default for a fresh install**; upgrades keep it off, because it resizes other apps' windows and should not switch itself on across an update. It only works while the taskbar is set to always visible.
+- **Keep maximized windows above the taskbar** — lifts the bottom edge of a screen-filling window above the taskbar, so the always-visible bar does not cover it. **On by default for a fresh install**; upgrades keep it off, because it resizes other apps' windows and should not switch itself on across an update — tick it here to get it. Three conditions have to hold together: the taskbar set to Always Visible (any auto-hide delay turns avoidance off), the bar actually on screen, and a window that really fills the available desktop area (dragging one to roughly that size does not count).
 - **Dock Settings…** — opens Desktop & Dock on Ventura and later, or Dock & Menu Bar on macOS 12. It only opens System Settings; it never writes Dock preferences or restarts Dock.
 - **Settings…** — opens the settings window described below.
 - **Install x.y.z…** — appears only while an update is waiting to be installed, marked with a small red dot (the menu-bar icon carries a dot too). One click downloads, installs and relaunches. Manual checking lives in the settings window's About section.
@@ -170,6 +168,8 @@ Two more settings under **System Settings → Desktop & Dock** pair well with a 
 
 Issues and discussions are answered in English and Chinese alike — write in whichever you prefer.
 
+**Discord** — [Join the server](https://discord.gg/QnKjUMVzdC) for announcements and support in English (Chinese is welcome too).
+
 **WeChat Group** *(for Chinese-speaking users)*
 
 <img src="assets/wechat-group.png" alt="Tungsten Edge WeChat group QR code" width="280" />
@@ -178,7 +178,7 @@ The QR code is updated weekly. If it has expired, please leave a message in [Iss
 
 Tungsten Edge recognizes and thanks the [LINUX DO](https://linux.do/) community for providing a place for discussion and feedback.
 
-If Tungsten Edge is useful to you, a GitHub star helps more than it looks: at **225 stars** the project qualifies for the official Homebrew cask registry — after which `brew install --cask tungsten-edge` works for everyone, with no repository name to type.
+If Tungsten Edge is useful to you, a GitHub star still helps. Thanks to everyone who already starred: your stars got Tungsten Edge into the official Homebrew cask registry, so it now installs with `brew install --cask tungsten-edge`, no repository name to type.
 
 ## Pricing
 

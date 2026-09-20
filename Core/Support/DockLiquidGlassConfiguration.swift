@@ -9,8 +9,8 @@ enum DockLiquidGlassRenderPath: Equatable {
 /// 液态玻璃底板的可调参数。
 ///
 /// **这里只放「玻璃这块底板怎么画」，不放几何。** 面板高度、圆角、离屏底距一律来自
-/// `DockSize.metrics` 与 `DockShape.panelCornerRadius`（`AGENTS.md`：几何的唯一来源）——
-/// 玻璃自带第二套尺寸会让四档缩放失效，因为 `scale` 的定义本身就是 `panelHeight / 52`。
+/// `DockPanelHeight.metrics` 与 `DockShape.panelCornerRadius`（`AGENTS.md`：几何的唯一来源）——
+/// 玻璃自带第二套尺寸会让高度缩放失效，因为 `scale` 的定义本身就是 `panelHeight / 54`。
 ///
 /// **也不放阴影。** 落地阴影由 SwiftUI 侧的 `.dockShadow(theme.stripShadow)` 画在内容窗口的
 /// 20pt 透明边里；曾经试过改画到背景窗口的图层上，但那个窗口的 frame 正好等于底板本身，
@@ -78,6 +78,40 @@ struct DockLiquidGlassConfiguration: Equatable {
     /// 背景窗口根图层的黑底不透明度。**不是观感参数**：WindowServer 需要一块非零 alpha 的
     /// 形状才肯对这个窗口做背景模糊，这是给它的最小锚点。
     let backgroundPlateOpacity: Double
+    /// Private `NSGlassEffectView` variant the plate is rendered with. **3 is the material the
+    /// native Dock itself uses**: plate colour, the backdrop-coloured 1px rim and the dark
+    /// "thickness" line on the left all come with it and match the Dock to within ±2.
+    ///
+    /// `nil` (`DOCK_LIQUID_GLASS_SYSTEM_VARIANT=off`, or the private selector gone) falls back to
+    /// the SwiftUI `.glassEffect(.clear)` plate below — every other field in this struct describes
+    /// **that fallback only**; the variant plate takes no tint and no hand-drawn rim.
+    /// Callers read it through `DockGlassPresentation.activeSystemVariant`, which checks
+    /// `TEDockGlassSupportsSystemVariant()` first.
+    let systemVariant: Int?
+
+    static let dockSystemVariant = 3
+
+    // The native Dock resolves its material at Size.medium, independently of the bar height.
+    // These are optical distances, not panel geometry; do not scale them with the bar.
+    static let dockInnerRefractionHeight = 13.28
+    static let dockInnerRefractionAmount = -29.88
+
+    // System highlight angles are measured clockwise from the top edge normal.
+    static let diagonalKeyAngle = -25 * Double.pi / 180
+    static let diagonalFillAngle = Double.pi + diagonalKeyAngle
+    // Compensate for the long-edge falloff at the accepted diagonal angle.
+    static let boostedHighlightAmount = 0.75
+
+    /// `DockPanelBackdrop`'s legacy 2pt outset + clip would cut off the variant plate's own rim.
+    static func backdropOutset(usesLiquidGlass: Bool, usesSystemVariant: Bool) -> CGFloat {
+        usesLiquidGlass && usesSystemVariant ? 0 : 2
+    }
+
+    /// The native Dock casts no drop shadow; with its material ours reads as a grey slab around
+    /// the plate. `stripShadow` only (taskbar + capsule) — popups keep theirs.
+    static func stripShadowVisible(usesLiquidGlass: Bool, usesSystemVariant: Bool) -> Bool {
+        !(usesLiquidGlass && usesSystemVariant)
+    }
 
     func renderPath(
         isGlassAPIAvailable: Bool,
@@ -156,8 +190,16 @@ struct DockLiquidGlassConfiguration: Equatable {
                 range: 0 ... 12,
                 fallback: 4
             ),
-            backgroundPlateOpacity: 0.001
+            backgroundPlateOpacity: 0.001,
+            systemVariant: systemVariant(DebugSwitch.liquidGlassSystemVariant.value(in: environment))
         )
+    }
+
+    private static func systemVariant(_ raw: String?) -> Int? {
+        guard let raw = trimmed(raw) else { return dockSystemVariant }
+        if raw == "off" { return nil }
+        guard let value = Int(raw), (0 ... 40).contains(value) else { return dockSystemVariant }
+        return value
     }
 
     private static func boundedDouble(

@@ -14,10 +14,21 @@ struct DockGlassBackdrop: View {
     var cornerRadius: CGFloat = DockShape.panelCornerRadius
     var saturation: Double = 1.0
     var thicknessEnabled: Bool = false
+    var matchesDockRefraction: Bool = false
 
     var body: some View {
         Group {
-            if #available(macOS 26.0, *), usesLiquidGlass {
+            if #available(macOS 26.0, *), usesLiquidGlass, let variant = DockGlassPresentation.activeSystemVariant {
+                DockSystemGlassVariantPlate(
+                    cornerRadius: cornerRadius,
+                    variant: variant,
+                    matchesDockRefraction: matchesDockRefraction && DockGlassPresentation.dockRefractionEnabled
+                        && variant == DockLiquidGlassConfiguration.dockSystemVariant,
+                    usesDiagonalHighlight: matchesDockRefraction && DockGlassPresentation.diagonalHighlightEnabled
+                        && variant == DockLiquidGlassConfiguration.dockSystemVariant
+                )
+                    .allowsHitTesting(false)
+            } else if #available(macOS 26.0, *), usesLiquidGlass {
                 DockLiquidGlassPlate(
                     cornerRadius: cornerRadius,
                     configuration: DockGlassPresentation.configuration
@@ -55,15 +66,20 @@ struct DockPanelBackdrop: View {
     let theme: DockThemeTokens
     let cornerRadius: CGFloat
     let usesLiquidGlass: Bool
+    var matchesDockRefraction: Bool = false
 
     var body: some View {
         DockGlassBackdrop(material: theme.effectivePanelMaterial,
                           usesLiquidGlass: usesLiquidGlass,
                           cornerRadius: cornerRadius,
                           saturation: theme.effectiveBackdropSaturation,
-                          thicknessEnabled: theme.drawsEffectiveThickness)
-            .padding(-2)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                          thicknessEnabled: theme.drawsEffectiveThickness,
+                          matchesDockRefraction: matchesDockRefraction)
+            .padding(-DockLiquidGlassConfiguration.backdropOutset(
+                usesLiquidGlass: usesLiquidGlass,
+                usesSystemVariant: DockGlassPresentation.usesSystemVariant))
+            .dockBackdropClip(cornerRadius: cornerRadius,
+                              skip: usesLiquidGlass && DockGlassPresentation.usesSystemVariant)
             .ignoresSafeArea()
     }
 }
@@ -94,7 +110,8 @@ extension View {
                 .strokeBorder(style, lineWidth: strokeWidth)
         }
         .overlay {
-            if DockPanelRimPlan.glassRimVisible(usesLiquidGlass: usesLiquidGlass) {
+            if DockPanelRimPlan.glassRimVisible(usesLiquidGlass: usesLiquidGlass,
+                                                usesSystemVariant: DockGlassPresentation.usesSystemVariant) {
                 DockGlassRim(cornerRadius: cornerRadius, configuration: configuration)
             }
         }
@@ -172,8 +189,28 @@ private struct DockGlassRim: View {
     }
 }
 
+private extension View {
+    /// The variant plate clips itself (circular corners); our continuous-corner clip at the same
+    /// radius would shave its rim at the corners.
+    @ViewBuilder
+    func dockBackdropClip(cornerRadius: CGFloat, skip: Bool) -> some View {
+        if skip { self } else { clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)) }
+    }
+}
+
 enum DockGlassPresentation {
     static let configuration = DockLiquidGlassConfiguration.resolve()
+    static let dockRefractionEnabled = DebugSwitch.liquidGlassDockRefraction.isEnabled()
+    static let diagonalHighlightEnabled = DebugSwitch.liquidGlassDiagonalHighlight.isEnabled()
+    static let highlightBoostEnabled = DebugSwitch.liquidGlassHighlightBoost.isEnabled()
+
+    /// The system variant in effect, or `nil` when it is switched off or the private selector is gone.
+    static let activeSystemVariant: Int? = {
+        guard let variant = configuration.systemVariant, TEDockGlassSupportsSystemVariant() else { return nil }
+        return variant
+    }()
+
+    static var usesSystemVariant: Bool { activeSystemVariant != nil }
 
     /// 能不能给任务条建玻璃合成。三道门：系统 ≥ 26、开关打开、SkyLight 的两个符号都取到。
     static var shouldAttemptTaskbarComposite: Bool {
@@ -196,7 +233,10 @@ enum DockGlassPresentation {
             let rim = "peak=\(c.borderPeakOpacity) edge=\(c.borderEdgeLevel) "
                 + "cut=\(c.borderCornerCut) spread=\(c.borderCornerSpread) w=\(c.borderLineWidth)"
             print("[glass] taskbar composite active, clearTint=\(c.clearTintOpacity), rim(\(rim)), "
-                + "background=\(c.backgroundMaterialOpacity), windowBlur=\(c.windowBlurRadius)")
+                + "background=\(c.backgroundMaterialOpacity), windowBlur=\(c.windowBlurRadius), "
+                + "systemVariant=\(activeSystemVariant.map(String.init) ?? "off"), "
+                + "dockRefraction=\(dockRefractionEnabled), diagonalHighlight=\(diagonalHighlightEnabled), "
+                + "highlightBoost=\(highlightBoostEnabled)")
         } else if #available(macOS 26.0, *) {
             print("[glass] composite unavailable; using NSVisualEffectView")
         } else {
@@ -205,7 +245,135 @@ enum DockGlassPresentation {
     }
 }
 
-/// 玻璃底板本体。五个悬浮面板共用（探路期只有任务条接了）。
+/// The plate rendered by AppKit's `NSGlassEffectView` with a private system variant (the Dock's).
+@available(macOS 26.0, *)
+private struct DockSystemGlassVariantPlate: NSViewRepresentable {
+    let cornerRadius: CGFloat
+    let variant: Int
+    let matchesDockRefraction: Bool
+    let usesDiagonalHighlight: Bool
+
+    func makeCoordinator() -> DockGlassRefractionObserver { DockGlassRefractionObserver() }
+
+    func makeNSView(context: Context) -> NSGlassEffectView {
+        let view = NSGlassEffectView()
+        view.contentView = NSView()
+        apply(to: view)
+        configureObserver(context.coordinator, for: view)
+        return view
+    }
+
+    // SwiftUI re-runs update, never re-creates the view — the radius follows drag-to-resize here.
+    func updateNSView(_ view: NSGlassEffectView, context: Context) {
+        apply(to: view)
+        configureObserver(context.coordinator, for: view)
+    }
+
+    private func configureObserver(_ observer: DockGlassRefractionObserver, for view: NSView) {
+        if matchesDockRefraction || usesDiagonalHighlight {
+            observer.attach(to: view,
+                            refractionEnabled: matchesDockRefraction,
+                            diagonalHighlightEnabled: usesDiagonalHighlight,
+                            highlightAmount: DockGlassPresentation.highlightBoostEnabled
+                                ? DockLiquidGlassConfiguration.boostedHighlightAmount : nil)
+        } else {
+            observer.stop()
+        }
+    }
+
+    static func dismantleNSView(_ view: NSGlassEffectView, coordinator: DockGlassRefractionObserver) {
+        coordinator.stop()
+    }
+
+    private func apply(to view: NSGlassEffectView) {
+        view.cornerRadius = cornerRadius
+        _ = TEDockGlassSetSystemVariant(view, variant)
+    }
+}
+
+/// AppKit replaces the glass filter when its material or geometry changes. Follow those changes
+/// without polling, and never retain or mutate a filter owned by the system.
+private final class DockGlassRefractionObserver {
+    private weak var view: NSView?
+    private var viewObservation: NSKeyValueObservation?
+    private var layerObservations: [ObjectIdentifier: [NSKeyValueObservation]] = [:]
+    private var effectObservations: [ObjectIdentifier: NSObject] = [:]
+    private var refreshScheduled = false
+    private var refractionEnabled = false
+    private var diagonalHighlightEnabled = false
+    private var highlightAmount: Double?
+
+    func attach(to view: NSView, refractionEnabled: Bool, diagonalHighlightEnabled: Bool,
+                highlightAmount: Double?) {
+        if self.view !== view {
+            stop()
+            self.view = view
+            viewObservation = view.observe(\.layer) { [weak self] _, _ in self?.scheduleRefresh() }
+        }
+        self.refractionEnabled = refractionEnabled
+        self.diagonalHighlightEnabled = diagonalHighlightEnabled
+        self.highlightAmount = highlightAmount
+        scheduleRefresh()
+    }
+
+    func stop() {
+        view = nil
+        viewObservation = nil
+        layerObservations.removeAll()
+        effectObservations.removeAll()
+    }
+
+    private func scheduleRefresh() {
+        guard !refreshScheduled else { return }
+        refreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.refreshScheduled = false
+            self.refresh()
+        }
+    }
+
+    private func refresh() {
+        guard let root = view?.layer else {
+            layerObservations.removeAll()
+            effectObservations.removeAll()
+            return
+        }
+        var pending = [root]
+        var seen = Set<ObjectIdentifier>()
+        while let layer = pending.popLast() {
+            let id = ObjectIdentifier(layer)
+            guard seen.insert(id).inserted else { continue }
+            if layerObservations[id] == nil {
+                layerObservations[id] = [
+                    layer.observe(\.sublayers) { [weak self] _, _ in self?.scheduleRefresh() },
+                    layer.observe(\.filters) { [weak self] _, _ in self?.scheduleRefresh() }
+                ]
+            }
+            if refractionEnabled {
+                _ = TEDockGlassSetRefraction(layer,
+                                            DockLiquidGlassConfiguration.dockInnerRefractionHeight,
+                                            DockLiquidGlassConfiguration.dockInnerRefractionAmount)
+            }
+            if diagonalHighlightEnabled {
+                if effectObservations[id] == nil {
+                    effectObservations[id] = TEDockGlassObserveEffect(layer) { [weak self] in
+                        self?.scheduleRefresh()
+                    }
+                }
+                _ = TEDockGlassSetHighlight(layer,
+                                           DockLiquidGlassConfiguration.diagonalKeyAngle,
+                                           DockLiquidGlassConfiguration.diagonalFillAngle,
+                                           highlightAmount.map { NSNumber(value: $0) })
+            }
+            pending.append(contentsOf: layer.sublayers ?? [])
+        }
+        layerObservations = layerObservations.filter { seen.contains($0.key) }
+        effectObservations = effectObservations.filter { diagonalHighlightEnabled && seen.contains($0.key) }
+    }
+}
+
+/// SwiftUI 玻璃底板（系统变体不可用或被关掉时的回退）。五个悬浮面板共用（探路期只有任务条接了）。
 @available(macOS 26.0, *)
 private struct DockLiquidGlassPlate: View {
     let cornerRadius: CGFloat

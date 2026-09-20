@@ -21,10 +21,18 @@ enum DisplayIdentity {
     /// 屏参数变化时算一次（`DisplayTopologyStore`），别在热路径上现算。
     @MainActor
     static func attributionTable() -> WindowDisplayAttribution.Table {
-        let screens = NSScreen.screens
+        attributionTable(screens: NSScreen.screens)
+    }
+
+    /// Builds the table from screens the caller already sampled, so one topology transaction
+    /// never reads `NSScreen.screens` twice.
+    @MainActor
+    static func attributionTable(screens: [NSScreen]) -> WindowDisplayAttribution.Table {
         let primaryHeight = screens.first?.frame.maxY ?? 0
-        let displays: [WindowDisplayAttribution.Display] = screens.compactMap { screen in
+        var primaryUUID: String?
+        let displays: [WindowDisplayAttribution.Display] = screens.enumerated().compactMap { index, screen in
             guard let uuid = uuidString(for: screen) else { return nil }
+            if index == 0 { primaryUUID = uuid }
             return WindowDisplayAttribution.Display(
                 uuid: uuid,
                 cgFrame: WindowLiftAvoidance.quartzFrame(fromAppKit: screen.frame, primaryScreenHeight: primaryHeight),
@@ -34,7 +42,20 @@ enum DisplayIdentity {
         }
         return WindowDisplayAttribution.Table(
             displays: displays,
-            primaryUUID: screens.first.flatMap { uuidString(for: $0) }
+            primaryUUID: primaryUUID
+        )
+    }
+
+    /// Derives the physical display count, the ordered UUIDs and the attribution table from a
+    /// single read.
+    @MainActor
+    static func topologySnapshot() -> ScreenTopologySnapshot {
+        let screens = NSScreen.screens
+        let table = attributionTable(screens: screens)
+        return ScreenTopologySnapshot(
+            physicalDisplayCount: screens.count,
+            identifiedDisplayUUIDs: table.displays.map(\.uuid),
+            attributionTable: table
         )
     }
 

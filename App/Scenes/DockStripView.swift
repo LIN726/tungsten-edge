@@ -4,6 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct DockStripView: View {
+    @Environment(\.isPanelHeightResizing) var isPanelHeightResizing
     @EnvironmentObject var runtime: AppRuntime
     @EnvironmentObject var drawerStore: DrawerStore
     @EnvironmentObject var messagingStore: MessagingAppStore
@@ -12,6 +13,7 @@ struct DockStripView: View {
     @EnvironmentObject var pinnedFolderStore: PinnedFolderStore
     @EnvironmentObject var folderCoverStore: PinnedFolderCoverStore
     @EnvironmentObject var shelfStore: ShelfStore
+    @ObservedObject var trashStore = TrashStateStore.shared
     @EnvironmentObject var settingsStore: AppSettingsStore
     @EnvironmentObject var displayTopologyStore: DisplayTopologyStore
 
@@ -35,11 +37,11 @@ struct DockStripView: View {
 
     /// 当前尺寸档位派生的面板几何与缩放系数。**条内不写裸尺寸数字**——凡是随任务条一起
     /// 放大缩小的值都乘 `dockScale`；发丝线（分隔线宽、描边）保持 1pt 不缩。
-    private var metrics: PanelLayoutMetrics { settingsStore.dockSize.metrics }
-    var dockScale: CGFloat { settingsStore.dockSize.scale }
-    /// 任务条圆角。**玻璃态与毛玻璃态同一个值** —— 几何只有 `DockSize.metrics` /
-    /// `DockShape` 一个来源，换底板材质不改尺寸（否则四档缩放失效，`scale` 的定义
-    /// 就是 `panelHeight / 52`）。
+    private var metrics: PanelLayoutMetrics { settingsStore.dockPanelHeight.metrics }
+    var dockScale: CGFloat { settingsStore.dockPanelHeight.scale }
+    /// 任务条圆角。**玻璃态与毛玻璃态同一个值** —— 几何只有 `DockPanelHeight.metrics` /
+    /// `DockShape` 一个来源，换底板材质不改尺寸（否则高度缩放失效，`scale` 的定义
+    /// 就是 `panelHeight / 54`）。
     private var taskbarCornerRadius: CGFloat { Style.cornerRadius * dockScale }
     /// 悬停效果档位。条内每个 chip 都显式接收它（同 `dockScale`，漏传是编译错误）；
     /// 抽屉面板与抽屉入口胶囊有意不受它影响（owner 2026-08-02）。
@@ -57,6 +59,8 @@ struct DockStripView: View {
     var onShelfPopupToggle: (CGRect) -> Void = { _ in }
     /// 窗口 Tab 点击 Command → 弹窗 toggle（bundleID + windowTitle + chip 可视矩形·屏幕坐标 + 目标 PID）。
     var onWindowTabPopupToggle: (String, String, CGRect, pid_t?) -> Void = { _, _, _, _ in }
+    /// 废纸篓点击 → 废纸篓弹窗 toggle（chip 可视矩形·屏幕坐标）。PanelCoordinator 注入。
+    var onTrashPopupToggle: (CGRect) -> Void = { _ in }
     /// 「添加文件夹…」统一入口（NSOpenPanel 归 AppDelegate 管）。
     var onAddFolder: () -> Void = {}
     /// 外部文件命中固定文件夹 chip 后，上抛给 composition 层在后台执行搬运。
@@ -66,6 +70,18 @@ struct DockStripView: View {
     var onWindowTitleTooltipEvent: (WindowTitleTooltipEvent) -> Void = { _ in }
     /// 右键任务条底板 → 弹钨极菜单（`StatusMenuController` 持有那个菜单）。
     var onRequestTaskbarMenu: (NSEvent, NSView) -> Void = { _, _ in }
+    /// Drag-to-resize on the bar's grip zones (the divider gaps; the end insets only when the
+    /// bar has no divider — `StripContextMenuZone.gripClaims`). `PanelCoordinator` injects both; the defaults are the
+    /// correct omission for a strip with no panel behind it (the drag-carrier snapshot).
+    var onInteractiveResize: (StripResizeGripEvent) -> Void = { _ in }
+    var resizeGripController: StripResizeGripController? = nil
+    /// 标签变长变短那一轮 SwiftUI 更新里通知面板开跟随窗，附上这次开始动的每个标签盒的**起始宽**
+    /// （`[chipID: 旧标签盒宽]`，pt）；之后每帧的实时宽由 `onLabelBoxWidthTick` 报，面板据此算内容总宽
+    /// （`PanelCoordinator.beginLabelWidthFollow(starting:)`）。默认空实现是正确的省略语义：不挂在面板上
+    /// 的条（拖动载体快照）没有底板要跟。
+    var onLabelWidthChange: ([String: CGFloat]) -> Void = { _ in }
+    /// 标签盒每帧的实时宽度（`LabelBoxWidthDriver` 经环境值上报），转给面板逐帧设 frame。
+    var onLabelBoxWidthTick: (String, CGFloat) -> Void = { _, _ in }
     /// 跨面板拖动权威（拖卡进抽屉 路线 C）：起拖 → beginDrag；读 draggingItem 隐藏原位卡片、
     /// 读 isOverDropZone 在进投放区时停掉条内重排。载体面板/监视器/收尾都在它里面，本视图不碰。
     @EnvironmentObject var dragController: DragController
@@ -91,10 +107,13 @@ struct DockStripView: View {
     /// 弹簧（0.28s）叠在 AppKit easeInEaseOut（0.22s）上，图标相对底板忽前忽后，就是 owner 2026-09-03
     /// 录屏里「没有原生丝滑」的那一下。
     @State private var renderedCollapsed = false
+    /// 上一轮已渲染的标签表：算这次标签变化让内容总宽变了多少（只算真的画出标题的卡，形态 `.multi`）。
+    @State private var renderedLabelTitles: [String: String] = [:]
 
     /// 中转格 frame（"strip" 空间）。**独立上报,不塞进 folderChipFrames**（评审：那个字典专属
     /// 文件夹 chip,后续还喂文件夹重排 hit-test,不能混 sentinel）。喂中转弹窗锚点 + drop 路由。
     @State var shelfFrame: CGRect = .zero
+    @State var trashFrame: CGRect = .zero
 
     /// 外部文件拖入的实时落点目标（悬停高亮用;nil = 没有外部拖拽悬停）。
     @State var externalDropTarget: StripDropRouting.Target?
@@ -161,7 +180,8 @@ struct DockStripView: View {
             // macOS 26 的 Liquid Glass 由统一底板接管；默认关闭，旧系统与未开关时仍是原毛玻璃。
             DockPanelBackdrop(theme: theme,
                               cornerRadius: taskbarCornerRadius,
-                              usesLiquidGlass: usesLiquidGlass)
+                              usesLiquidGlass: usesLiquidGlass,
+                              matchesDockRefraction: true)
 
             // 玻璃厚度感：材质之上、内容之下。**默认关**，`DOCK_PANEL_THICKNESS=1` 才开
             //（未验收的效果一律 opt-in，见 DockEffectSwitches）。深色则两层保险都不画，
@@ -184,6 +204,24 @@ struct DockStripView: View {
                                ? .easeInOut(duration: DrawerAnimation.duration)          // 合拢 / 重开：跟面板走
                                : .spring(response: 0.28, dampingFraction: 0.82),         // 让位：签收过的弹簧
                            value: projection.layoutKeys)
+                // 标签变长变短的宽度动画在 `ChipView.titleLabel` 的盒子上（`LabelBoxWidthDriver` 逐帧改
+                // 真实布局宽，邻卡随之重排）；这一层只负责通知面板开始逐帧跟随，外加起步探针。
+                // 同一轮更新里让面板起步（理由见 `onLabelWidthChange`）。探针行留着：和面板那侧
+                // `relayout` 的时间戳对着看，差值就是内容与底板起步相差多少（`DOCK_HOVER_TRACE=1`）。
+                .onChange(of: projection.labelTitleByChipID) { newTitles in
+                    HoverTrace.action("labelChange", phase: "swiftui")
+                    let titled = Set(projection.layoutKeys.filter { $0.form == .multi }.map(\.id))
+                    var starting: [String: CGFloat] = [:]
+                    for id in titled {
+                        guard let new = newTitles[id], let old = renderedLabelTitles[id], new != old else { continue }
+                        let from = ChipPillMetrics.labelWidth(title: old, scale: dockScale)
+                        if from != ChipPillMetrics.labelWidth(title: new, scale: dockScale) { starting[id] = from }
+                    }
+                    renderedLabelTitles = newTitles
+                    if !starting.isEmpty { onLabelWidthChange(starting) }
+                }
+                .onAppear { renderedLabelTitles = projection.labelTitleByChipID }
+                .environment(\.labelBoxWidthTick, onLabelBoxWidthTick)
             }
             .clipShape(RoundedRectangle(cornerRadius: taskbarCornerRadius, style: .continuous))
             .compatLeadingScrollAnchor()
@@ -211,6 +249,16 @@ struct DockStripView: View {
             //
             // overlay 与 background 一样都不影响父视图尺寸——任务条宽度靠 `fittingSize` 量，
             // 千万别改成 ZStack 的兄弟节点，那会把条撑宽。
+            // Drag-to-resize grip: the right-click host's zones kept clear of the chips
+            // (`StripContextMenuZone.gripClaims`), claims only a plain left mouse-down there;
+            // same `.overlay` reasoning as the menu host. Mounted beneath it so the menu host
+            // stays topmost, though order is moot — each returns `nil` from `hitTest` for the
+            // other's event types.
+            .overlay(StripResizeGripHost(
+                shouldClaim: { resizeGripZoneClaims(atScreen: $0) },
+                onEvent: onInteractiveResize,
+                controller: resizeGripController
+            ))
             .overlay(NativeMenuHost(
                 popUpHandler: onRequestTaskbarMenu,
                 shouldClaim: { taskbarMenuZoneClaims(atScreen: $0) }
@@ -241,6 +289,7 @@ struct DockStripView: View {
             // 关掉中转格后直接传 nil：ShelfFramePreferenceKey.reduce 刻意忽略 .zero，
             // 旧帧不会被清掉，只看帧的话落在原位置仍会误判成暂存。
             shelfFrame: settingsStore.showShelf ? shelfFrame : nil,
+            trashFrame: settingsStore.showTrash ? trashFrame : nil,
             folderFrames: folderChipFrames,
             orderedPaths: pinnedFolderStore.folderPaths,
             // chip 间距随档位缩放，「插到最前面」那段 slack 也得跟着缩，否则小档时它相对更宽、
@@ -260,6 +309,9 @@ struct DockStripView: View {
             currentFrozenWidth: { frozenStripWidth },
             currentStripRect: { stripRootScreenRect }
         ))
+        // No cursor badge over the Trash. **Must be an `.overlay` directly after `.onDrop`**: AppKit
+        // gives the drag to the topmost registered view, and `.background` here lands below SwiftUI's.
+        .overlay(StripDropBadgeOverlay())
         // 与 "strip" 命名空间同一视图 → 屏幕 frame 即 "strip" 空间原点，供抽屉拖回任务条做坐标映射 + 进出判定。
         // **面板自己挪了也要重报落点锚点**：所有锚点都是 `stripFrameToScreen` 拿这个 rect 换算的。
         // 松手时 `teardown` 清掉 `conversion` → 条宽解冻 → 整条重新居中，消息区（在最左端）
@@ -277,6 +329,8 @@ struct DockStripView: View {
             onMove: { pointer in
                 pointerBox.value = pointer
                 refreshHoveredEntry(frames: stripHoverFrames, origin: stripRootScreenRect)
+                // Grip-zone hover for the ▲▼ glyph; rides the same ≤60Hz poll, `nil` on leave.
+                onInteractiveResize(.hover(pointer.flatMap { resizeGripZoneClaims(atScreen: $0) ? $0 : nil }))
                 HoverTrace.pointer(x: pointer?.x ?? -1, chip: hoveredEntryID)
             },
             onCommandKey: {
@@ -290,7 +344,10 @@ struct DockStripView: View {
         ))
         // 落地阴影住在窗口的 20pt 透明边里，玻璃态同样走这条 —— 曾经试过改画到背景窗口的
         // 图层上，但那个窗口的 frame 正好等于底板，阴影画在窗口外会被整个裁掉。
-        .dockShadow(theme.stripShadow)
+        .dockShadow(theme.stripShadow,
+                    visible: DockLiquidGlassConfiguration.stripShadowVisible(
+                        usesLiquidGlass: usesLiquidGlass,
+                        usesSystemVariant: DockGlassPresentation.usesSystemVariant))
         .padding(PanelCoordinator.shadowPadding)
         // 抽屉图标拖到任务条上：进任务条区即转正成窗口卡、跟光标整块实时让位（镜像 DrawerView 的全局鼠标驱动）。
         // 消息区的重排/释放同样由全局鼠标驱动——重排会挪动被拖 chip,SwiftUI 会取消原手势,
@@ -335,6 +392,9 @@ struct DockStripView: View {
         // 就往上长一截的来源（见 `refreshHoveredEntry`）。
         .onChange(of: dragController.stripSlotCollapsed) { renderedCollapsed = $0 }
         .onChange(of: dragController.hoverGate) { _ in
+            refreshHoveredEntry(frames: stripHoverFrames, origin: stripRootScreenRect)
+        }
+        .onChange(of: isPanelHeightResizing) { _ in
             refreshHoveredEntry(frames: stripHoverFrames, origin: stripRootScreenRect)
         }
         // 拖动中消息 chip 的 app 从消息区消失（退出/外部 unmark/快照丢）→ 取消拖动，免得空位卡死。
@@ -389,14 +449,19 @@ struct DockStripView: View {
             updateLandingAnchor()
         }
         .onPreferenceChange(ShelfFramePreferenceKey.self) { shelfFrame = $0 }
+        .onPreferenceChange(TrashFramePreferenceKey.self) { trashFrame = $0 }
         .onChange(of: pinnedFolderStore.folderPaths) { currentPaths in
-            let validIDs = Set(["shelf"] + currentPaths.map { "folder-\($0)" })
+            let validIDs = Set(["shelf", "trash"] + currentPaths.map { "folder-\($0)" })
             animatedEntryIDs.formIntersection(validIDs)
         }
         // 中转格显隐会改变整个固定区的落点几何：正在进行的外部拖放悬停立即收掉，不留高亮。
         // 入场动画只摘 "shelf" 这一个 id——整片清掉会让重新勾上时所有文件夹 chip 一起重放入场。
         .onChange(of: settingsStore.showShelf) { visible in
             if !visible { animatedEntryIDs.remove("shelf") }
+            externalDropHoverEnded(isLanding: false)
+        }
+        .onChange(of: settingsStore.showTrash) { visible in
+            if !visible { animatedEntryIDs.remove("trash") }
             externalDropHoverEnded(isLanding: false)
         }
         // No .frame(maxWidth: .infinity) here — lets NSHostingView.fittingSize reflect
@@ -447,7 +512,8 @@ struct DockStripView: View {
             return
         }
         let geometry = FolderChipDropGeometry(stripScreenRect: stripRootScreenRect,
-                                              folderZoneMaxX: folderZoneMaxX)
+                                              folderZoneMaxX: folderZoneMaxX,
+                                              trashMinX: settingsStore.showTrash && trashFrame != .zero ? trashFrame.minX : nil)
         dragController.setFolderDropGeometry(geometry)
         dragController.setFolderDragZone(geometry.classify(screenPoint: dragController.globalLocation))
     }
@@ -579,7 +645,7 @@ struct DockStripView: View {
             }
         case let .keptApp(bid):
             launcherTap(bid, hasRealWindow: false)   // 保留占位只在没有真窗口时存在
-        case .pinnedFolder, .shelf, .divider, .externalDropGhost:
+        case .pinnedFolder, .shelf, .trash, .divider, .externalDropGhost:
             return   // 空档不可拖，也就不会有飞行中的载荷指向它
         }
     }
@@ -689,7 +755,7 @@ struct DockStripView: View {
             // 文件夹 chip 两档都是 1.12 底锚放大，且没有按压反馈（AGENTS《Taskbar Size Tiers》）。
             return DragCarrierGeometry.pickUpPose(chipHeight: height, pressedScale: nil,
                                                   hoverScale: hovered ? PinnedFolderChip.hoverScale : nil)
-        case .shelf, .divider, .externalDropGhost:
+        case .shelf, .trash, .divider, .externalDropGhost:
             return .resting
         }
     }
@@ -1131,6 +1197,12 @@ struct DockStripView: View {
                                                value: geo.frame(in: .named("strip")))
                     }
                 )
+        case .trash:
+            stripEntryView(entry, projection: projection)
+                .background(GeometryReader { geo in
+                    Color.clear.preference(key: TrashFramePreferenceKey.self,
+                                           value: geo.frame(in: .named("strip")))
+                })
         case .divider:
             stripEntryView(entry, projection: projection)
         case .externalDropGhost:
@@ -1217,7 +1289,7 @@ struct DockStripView: View {
                 .fill(theme.zoneDivider.color)
                 // 宽度是发丝线，恒 1pt 不缩；只有高度跟着档位走。
                 .frame(width: 1, height: Style.dividerHeight * dockScale)
-                .padding(.horizontal, 2 * dockScale)
+                .padding(.horizontal, Style.dividerSidePadding * dockScale)
         case let .pinnedFolder(path):
             let index = 1 + (pinnedFolderStore.folderPaths.firstIndex(of: path) ?? 0)
             let delay = Double(min(index, 6)) * 0.018
@@ -1238,6 +1310,10 @@ struct DockStripView: View {
             )
             .stripEntrance(id: entrance ? entry.id : nil, delay: delay,
                            animatedEntryIDs: $animatedEntryIDs)
+        case .trash:
+            trashChip(hovered: hovered)
+                .stripEntrance(id: entrance ? entry.id : nil, delay: 0,
+                               animatedEntryIDs: $animatedEntryIDs)
         case .shelf:
             ShelfChip(
                 itemCount: shelfStore.itemPaths.count,
@@ -1364,13 +1440,19 @@ private enum Style {
     static let cornerRadius: CGFloat   = DockShape.panelCornerRadius
 
     // Content layout
-    static let chipContentInset: CGFloat = 20  // horizontal padding inside blur; > cornerRadius avoids corner-clip
-    static let edgeFadeWidth: CGFloat    = 16  // scroll edge fade-out width (pt)
+    // The icon's transparent artwork margin is equal on both axes and cancels out here.
+    static let chipContentInset: CGFloat = DebugSwitch.stripBalancedInsets.isEnabled()
+        ? (ChipPillMetrics.chipHeight - ChipPillMetrics.cardWidth) / 2
+        : 20
+    // Keep the resting end icons outside the scroll fade when the padding is reduced.
+    static let edgeFadeWidth: CGFloat = min(16, chipContentInset)
     // 真身在 `ChipPillMetrics.chipSpacing`（气泡的邻域判定也要用中心间距，而本 enum 是
     // private，别的文件读不到）。改它必须同步改 `StripContextMenuZone.defaultMinimumGapWidth`，
     // 理由见那边的注释。
     static let chipSpacing: CGFloat      = ChipPillMetrics.chipSpacing
     static let dividerHeight: CGFloat    = 20  // zone divider height (pt)
+    /// Each side of the hairline. With `chipSpacing` the divider gap is `StripContextMenuZone.dividerGapWidth`.
+    static let dividerSidePadding: CGFloat = (StripContextMenuZone.dividerGapWidth - 1) / 2 - chipSpacing
 
     // 描边的「顶强底弱」高光已由 DockThemeTokens.panelRimTop / panelRimBottom 正式接管
     //（原先这里的两个常量是零引用的死代码，实际画的是均匀一圈白 0.15）。

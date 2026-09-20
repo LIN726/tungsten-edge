@@ -109,7 +109,7 @@ enum TaskbarScreenResolution {
     }
 }
 
-/// 状态菜单「钨极 Dock 栏显示在 ▸」子菜单的纯展示模型（2026-08-26 入口从设置窗口搬到菜单）。
+/// 状态菜单「单/多屏模式 ▸」子菜单的纯展示模型（2026-08-26 入口从设置窗口搬到菜单）。
 /// 与 `LaunchAtLoginMenuPresentation` 同一房规：判定在这里、可单测，controller 只负责渲染。
 struct TaskbarScreenMenuPresentation {
     /// 一行代表的选择。`token` 是给 `NSMenuItem.representedObject` 用的字符串往返
@@ -154,6 +154,9 @@ struct TaskbarScreenMenuPresentation {
     struct Item: Equatable {
         let selection: Selection
         let title: String
+        /// Grey text after the title, on the same line. Only 跟随栏 has one: its short name hides the
+        /// trigger (the bar moves only after the pointer dwells on a screen's bottom edge).
+        let hint: String?
         let isChecked: Bool
     }
 
@@ -163,6 +166,11 @@ struct TaskbarScreenMenuPresentation {
         case header(String)
         case separator
         case option(Item)
+    }
+
+    /// Everything before the screen name on a 固定在 row. 跟随栏's hint is aligned to start after it.
+    static var pinnedTitlePrefix: String {
+        String(format: String(localized: "Pinned to %@"), "")
     }
 
     /// 整行（连同子菜单）不显示。
@@ -183,41 +191,49 @@ struct TaskbarScreenMenuPresentation {
         // 固定到外接屏后把它拔掉 / 开着「所有屏幕」拔到只剩一块，整行消失 → 再也切不回「跟随鼠标」。
         isHidden = connectedScreens.count < 2 && pinned == nil && !placement.showsOnEveryDisplay
 
-        // 第一组：只在一块屏上（跟随鼠标 / 固定到某屏）。
+        // Group 1 — single-display mode: hover-to-switch, or pinned to one screen.
         var rows: [Row] = [
-            .header(String(localized: "On one display")),
+            .header(String(localized: "Single-display mode")),
             .option(Item(
                 selection: .followMouse,
-                title: String(localized: "Follow the mouse"),
+                title: String(localized: "Follows the pointer"),
+                hint: String(localized: "Hover a screen's bottom edge to switch"),
                 isChecked: placement == .followMouse
             ))
         ]
         rows += connectedScreens.map { screen in
             .option(Item(
                 selection: .screen(uuid: screen.uuid),
-                title: screen.title,
+                title: String(format: String(localized: "Pinned to %@"), screen.title),
+                hint: nil,
                 isChecked: pinned?.uuid == screen.uuid
             ))
         }
-        // 固定的屏此刻不在场：第一组末尾补一项「XX（未连接）」并保持选中——选择不丢，接回自动生效。
+        // 固定的屏此刻不在场：第一组末尾补一项「固定在 XX（未连接）」并保持选中——选择不丢，接回自动生效。
         if let pinned, !connectedScreens.contains(where: { $0.uuid == pinned.uuid }) {
             rows.append(.option(Item(
                 selection: .screen(uuid: pinned.uuid),
-                title: String(format: String(localized: "%@ (disconnected)"), pinned.name),
+                title: String(
+                    format: String(localized: "Pinned to %@"),
+                    String(format: String(localized: "%@ (disconnected)"), pinned.name)
+                ),
+                hint: nil,
                 isChecked: true
             )))
         }
-        // 第二组：每块屏各一条（③ 内容相同 / ④ 各屏只显示本屏窗口）。
+        // Group 2 — multi-display mode: ③ same content everywhere / ④ each bar lists only its own screen.
         rows.append(.separator)
-        rows.append(.header(String(localized: "One taskbar per display")))
+        rows.append(.header(String(localized: "Multi-display mode")))
         rows.append(.option(Item(
             selection: .allScreens,
-            title: String(localized: "Show all windows"),
+            title: String(localized: "Mirrored bars"),
+            hint: nil,
             isChecked: placement == .allScreens
         )))
         rows.append(.option(Item(
             selection: .allScreensPerDisplay,
-            title: String(localized: "Show only this display's windows"),
+            title: String(localized: "Separate bar per display"),
+            hint: nil,
             isChecked: placement == .allScreensPerDisplay
         )))
         self.rows = rows

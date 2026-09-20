@@ -599,7 +599,8 @@ final class DragController: ObservableObject {
         // **面板常驻，不 orderOut。** 它全透明、不吃鼠标、比我们自己的面板高一级；每次拖动
         // 再 orderOut / orderFront 一趟，换来的只是「刚 order 上来的窗口内容晚几帧才上屏」
         // 这一类时序坑（实测 2026-08-19：同一份代码，常驻时 6/6 次起拖无空档、载体必现，
-        // 反复 order 时有几次载体整段拖动都不上屏）。
+        // 反复 order 时有几次载体整段拖动都不上屏）。闲置时只**挪出屏幕**（`carrierParked`）。
+        parkCarrierSurfaces()
     }
 
     /// 立刻结束飞行、不做交接（新拖动打断、异常取消、面板拆除）。
@@ -813,6 +814,19 @@ final class DragController: ObservableObject {
         let frame: CGRect
     }
     private var surfaces: [CarrierSurface] = []
+    /// **Idle carrier panels are parked off every display; they are never ordered out.**
+    ///
+    /// The panels are resident (see `retireCarrier`), transparent and mouse-transparent, yet as
+    /// full-screen windows at `.floating + 1` they head the on-screen window list. Third-party
+    /// window managers that resolve "which window is under the pointer" from
+    /// `CGWindowListCopyWindowInfo` (Rectangle 1.100 takes the first window with level < 21 whose
+    /// bounds contain the pointer, alpha not consulted) picked our carrier for every mouse-down and
+    /// never saw the real window move, so drag-to-snap was dead while the taskbar ran (two user
+    /// reports, 0.11.2 / 0.11.5). Moving the frame keeps the backing surface and the ordering; only
+    /// order-in/out was measured to lose frames (`retireCarrier`). Starts parked so panels built by
+    /// `prewarmCarrier` are off-screen from birth; `ensureCarrierPanel` wakes them for a drag.
+    private var carrierParked = true
+    private static let parkedCarrierOrigin = CGPoint(x: -100_000, y: -100_000)
     /// 载体图层的 delegate，只干一件事：`hideCarrierInSlotRevealCommit` 那一次赋值期间把隐式动作关掉。
     /// 不用 `layer.actions = […NSNull]`（会把归位飞行的隐式动画一起杀掉，见 `makeCarrierPanel`），
     /// 也不用 `instantly`（显式事务在没有外层隐式事务时**立即上送**，那正是这里要避开的）。
@@ -1499,6 +1513,7 @@ final class DragController: ObservableObject {
         surfaces.append(made)
         made.panel.orderFrontRegardless()
         pinCarrierWindows?([made.panel.windowNumber])
+        if carrierParked { made.panel.setFrameOrigin(Self.parkedCarrierOrigin) }
         return made
     }
 
@@ -1523,7 +1538,25 @@ final class DragController: ObservableObject {
             activeSurface = next
         }
         carrierScreenFrame = frame
+        wakeCarrierSurfaces()
         return frame
+    }
+
+    /// Every panel back on its own screen (all of them: a drag may cross displays mid-flight and
+    /// the other screen's panel must already be in place). Re-pinned into the overlay space in case
+    /// the window server re-homed a window that spent its idle time on no display.
+    private func wakeCarrierSurfaces() {
+        guard carrierParked else { return }
+        carrierParked = false
+        for surface in surfaces { surface.panel.setFrameOrigin(surface.frame.origin) }
+        pinCarrierWindows?(surfaces.map { $0.panel.windowNumber })
+    }
+
+    /// Off every display until the next `ensureCarrierPanel`. See `carrierParked`.
+    private func parkCarrierSurfaces() {
+        guard !carrierParked else { return }
+        carrierParked = true
+        for surface in surfaces { surface.panel.setFrameOrigin(Self.parkedCarrierOrigin) }
     }
 
     /// 指针跨到另一块屏 → 切到那块屏那一套，把当前位图 / 缩放 / 投影原样搬过去，再按屏幕坐标摆位

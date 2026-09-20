@@ -483,11 +483,31 @@ struct AccessibilityWindowActionExecutor {
         return false
     }
 
+    /// Finder answers every AX call with `cannotComplete` while its main thread sits in file
+    /// coordination (a Trash count on a dead network mount: up to ~1s, `Docs/05`), and the handle's
+    /// 100ms messaging timeout turns that into a silent no-op:
+    /// the front was already handed off, the window stayed open. Only that error is retried, within
+    /// a bounded budget; any other answer is final.
     func close(_ handle: WindowHandle) -> Bool {
-        guard let button = axElementAttribute(kAXCloseButtonAttribute as CFString, from: handle.element) else {
-            return false
-        }
-        return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
+        let deadline = Date().addingTimeInterval(0.6)
+        var attempts = 0
+        repeat {
+            attempts += 1
+            var raw: CFTypeRef?
+            let readError = AXUIElementCopyAttributeValue(handle.element, kAXCloseButtonAttribute as CFString, &raw)
+            if readError == .success, let raw, CFGetTypeID(raw) == AXUIElementGetTypeID() {
+                let pressError = AXUIElementPerformAction(raw as! AXUIElement, kAXPressAction as CFString)
+                Self.chipProbeLogger.info("close-press pid=\(handle.pid, privacy: .public) error=\(pressError.rawValue, privacy: .public) attempt=\(attempts, privacy: .public)")
+                if pressError == .success { return true }
+                if pressError != .cannotComplete { return false }
+            } else if readError != .cannotComplete {
+                Self.chipProbeLogger.info("close-button-read failed pid=\(handle.pid, privacy: .public) error=\(readError.rawValue, privacy: .public)")
+                return false
+            }
+            usleep(50_000)
+        } while Date() < deadline
+        Self.chipProbeLogger.info("close gave up pid=\(handle.pid, privacy: .public) attempts=\(attempts, privacy: .public)")
+        return false
     }
 
     private func recapture(from handle: WindowHandle) -> WindowHandle? {
@@ -534,7 +554,8 @@ struct AccessibilityWindowActionExecutor {
     func findBackgroundActivationTarget(
         for handle: WindowHandle,
         record: WindowRecord,
-        snapshot: DockSnapshot
+        snapshot: DockSnapshot,
+        focusedReadBudget: TimeInterval = 0
     ) -> MinimizeHandoffTarget.Verdict {
         // isActive（即时读）而非 NSWorkspace.frontmostApplication（滞后缓存）：SkyLight 激活后
         // ~1.5s 内读缓存会误判"App 不在前台"，静默跳过预切 → macOS 提拔同 App 兄弟窗口。
@@ -542,8 +563,24 @@ struct AccessibilityWindowActionExecutor {
 
         let appElement = AXUIElementCreateApplication(handle.pid)
         AXUIElementSetMessagingTimeout(appElement, 0.2)
-        guard let focused = axElementAttribute(kAXFocusedWindowAttribute as CFString, from: appElement),
-              CFEqual(focused, handle.element) else { return .none }
+        // Only `cannotComplete` (a busy app) is retried within the budget — a "no focused window"
+        // answer is final, so a background sibling never waits here.
+        let deadline = Date().addingTimeInterval(focusedReadBudget)
+        var focused: AXUIElement?
+        var readError = AXError.success
+        repeat {
+            var raw: CFTypeRef?
+            readError = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &raw)
+            if readError == .success, let raw, CFGetTypeID(raw) == AXUIElementGetTypeID() {
+                focused = (raw as! AXUIElement)
+            }
+            guard readError == .cannotComplete, Date() < deadline else { break }
+            usleep(20_000)
+        } while true
+        guard let focused, CFEqual(focused, handle.element) else {
+            Self.chipProbeLogger.info("postactivate-target focused-gate failed pid=\(handle.pid, privacy: .public) readError=\(readError.rawValue, privacy: .public)")
+            return .none
+        }
 
         let ourPID = pid_t(ProcessInfo.processInfo.processIdentifier)
         guard let list = CGWindowListCopyWindowInfo(
@@ -598,27 +635,47 @@ struct AccessibilityWindowActionExecutor {
     /// 它翻了之后目标 App 仍可能没处理完失活，此时最小化 AppKit 照样提拔兄弟（矩阵 M1/M2/M3
     /// 各 1–3/10；加 AX 闸后 M4/M5 均 0/20）。旧的公开 API `SetFrontProcessWithOptions(FrontWindowOnly)`
     /// 会先把交接窗口抬到被收窗口之上，动画从别人背后开始，已弃用。
-    func switchFrontmostForHandoff(toPID pid: pid_t, windowID: CGWindowID, awaitingDeactivationOf targetPID: pid_t) -> Bool {
-        guard postSkyLightFrontSwitchOnly(pid: pid, windowID: windowID, mode: Self.kCPSNoWindows) else {
+    func switchFrontmostForHandoff(toPID pid: pid_t, windowID: CGWindowID, awaitingDeactivationOf targetPID: pid_t,
+                                   deactivationCap: TimeInterval = 0.1) -> Bool {
+        let route: String
+        if postSkyLightFrontSwitchOnly(pid: pid, windowID: windowID, mode: Self.kCPSNoWindows) {
+            route = "skylight"
+        } else if activateApplicationViaAccessibility(pid: pid) {
+            route = "ax-frontmost"
+        } else {
             Self.chipProbeLogger.info("switch-frontmost-handoff unavailable pid=\(pid, privacy: .public)")
             return false
         }
         let targetApp = AXUIElementCreateApplication(targetPID)
         AXUIElementSetMessagingTimeout(targetApp, 0.05)
-        let deadline = Date().addingTimeInterval(0.1)
+        let deadline = Date().addingTimeInterval(deactivationCap)
         var stillFrontmost: Bool? = true
+        var lastAXError: Int32 = 0
+        let waitStart = Date()
         repeat {
             var raw: CFTypeRef?
-            if AXUIElementCopyAttributeValue(targetApp, kAXFrontmostAttribute as CFString, &raw) == .success {
+            let axError = AXUIElementCopyAttributeValue(targetApp, kAXFrontmostAttribute as CFString, &raw)
+            if axError == .success {
                 stillFrontmost = (raw as? NSNumber)?.boolValue
             } else {
                 stillFrontmost = nil
+                lastAXError = axError.rawValue
             }
             if stillFrontmost == false { break }
             usleep(2_000)
         } while Date() < deadline
-        Self.chipProbeLogger.info("switch-frontmost-handoff pid=\(pid, privacy: .public) targetStillFrontmost=\(String(describing: stillFrontmost), privacy: .public)")
+        Self.chipProbeLogger.info("switch-frontmost-handoff pid=\(pid, privacy: .public) route=\(route, privacy: .public) targetStillFrontmost=\(String(describing: stillFrontmost), privacy: .public) axError=\(lastAXError, privacy: .public) waitMs=\(Int(Date().timeIntervalSince(waitStart) * 1000), privacy: .public)")
         return true
+    }
+
+    /// LaunchServices-free activation for the hand-off: `kAXFrontmostAttribute = true` on the
+    /// target's application element still activates on macOS 26 (~110ms), unlike the window-level
+    /// AX focus writes. It raises the target's key window before the switch lands, which is why it
+    /// runs only when no process serial number can be resolved for the SkyLight route.
+    private func activateApplicationViaAccessibility(pid: pid_t) -> Bool {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.2)
+        return AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue) == .success
     }
 
     private typealias SLPSSetFrontWindowFunc =
@@ -639,6 +696,23 @@ struct AccessibilityWindowActionExecutor {
     private static let skyLightFocusEnabled =
         DebugSwitch.skylightFocus.isEnabled(in: ProcessInfo.processInfo.environment)
 
+    /// pid → PSN, remembered per process generation: `GetProcessForPID` resolves through
+    /// LaunchServices and fails transiently for live processes (it and
+    /// `NSRunningApplication(processIdentifier:)` failed for the same pid at the same instant on
+    /// 2026-09-15, which skipped the hand-off pre-switch and let Finder promote a sibling). A PSN
+    /// seen earlier for the same process generation is served when the lookup fails.
+    private static let serialNumbers = ProcessGenerationCache<ProcessSerialNumber>()
+
+    private static func processSerialNumber(for pid: pid_t) -> ProcessSerialNumber? {
+        guard let getPSN = getProcessForPID else { return nil }
+        var psn = ProcessSerialNumber()
+        if getPSN(pid, &psn) == noErr {
+            serialNumbers.remember(psn, for: pid)
+            return psn
+        }
+        return serialNumbers.value(for: pid)
+    }
+
     /// 仅做 `_SLPSSetFrontProcessWithOptions` 前切、不发 make-key down（还原预激活用：
     /// down 要等 unminimize 之后发，见 activate() 还原分支的 R2 序注释）。
     fileprivate static let kCPSUserGenerated: UInt32 = 0x200
@@ -652,10 +726,7 @@ struct AccessibilityWindowActionExecutor {
         mode: UInt32 = AccessibilityWindowActionExecutor.kCPSUserGenerated
     ) -> Bool {
         guard Self.skyLightFocusEnabled else { return false }
-        guard let focus = Self.skyLightFocus,
-              let getPSN = Self.getProcessForPID else { return false }
-        var psn = ProcessSerialNumber()
-        guard getPSN(pid, &psn) == noErr else { return false }
+        guard let focus = Self.skyLightFocus, var psn = Self.processSerialNumber(for: pid) else { return false }
         _ = withUnsafePointer(to: &psn) { focus.slps($0, windowID, mode) }
         return true
     }
@@ -695,9 +766,7 @@ struct AccessibilityWindowActionExecutor {
     @discardableResult
     fileprivate func postSkyLightMakeKeyDown(pid: pid_t, windowID: CGWindowID) -> Bool {
         guard Self.skyLightFocusEnabled else { return false }
-        guard let focus = Self.skyLightFocus, let getPSN = Self.getProcessForPID else { return false }
-        var psn = ProcessSerialNumber()
-        guard getPSN(pid, &psn) == noErr else { return false }
+        guard let focus = Self.skyLightFocus, var psn = Self.processSerialNumber(for: pid) else { return false }
 
         var event = [UInt8](repeating: 0, count: 0x100)
         event[0x04] = 0xf8            // 记录声明长度（不随缓冲区变）
@@ -997,38 +1066,12 @@ struct PlatformActionExecutor {
                 awaitOnScreenBeforeFocus: forcedMinimizedPrior
             )
         case .minimizeWindow:
-            let handoff = windowExecutor.findBackgroundActivationTarget(for: handle, record: record, snapshot: snapshot)
-            // 接手者预测尽早回传（minimize 尚未执行）：越早写乐观 .active，越能覆盖极快的
-            // 「收窗 1 → 点窗 2」第二击。minimize 失败时预测由顶替清除自愈（目标仍 .active 兑现）。
-            switch handoff {
-            case .switchTo(_, _, let windowID), .siblingTakesOver(let windowID):
-                onHandoffActivePrediction?(windowID)
-            case .none:
-                break
-            }
-            var targetPID: pid_t?
-            var handoffWindowID: CGWindowID?
-            var preSwitched = false
-            if case .switchTo(let pid, let wid, _) = handoff {
-                targetPID = pid
-                handoffWindowID = wid
-                preSwitched = windowExecutor.switchFrontmostForHandoff(
-                    toPID: pid, windowID: wid, awaitingDeactivationOf: handle.pid
-                )
-            }
+            let handoff = beginHandoff(handle: handle, record: record, snapshot: snapshot,
+                                       onHandoffActivePrediction: onHandoffActivePrediction, patience: .minimize)
+            let preSwitched = handoff.preSwitched
 
             func finishSuccessfulMinimize(_ exec: AccessibilityWindowActionExecutor.ActionExecution) -> Bool {
-                if preSwitched, let targetPID, let handoffWindowID {
-                    windowExecutor.makeKeyAfterHandoff(pid: targetPID, windowID: handoffWindowID)
-                }
-                if !preSwitched, let targetPID {
-                    usleep(Self.postMinimizeActivateDelayMicroseconds)
-                    let activated = NSRunningApplication(processIdentifier: targetPID)?
-                        .activate(options: [.activateIgnoringOtherApps]) ?? false
-                    if switches.chipProbeEnabled {
-                        Self.chipProbeLogger.info("postactivate-background-fallback pid=\(targetPID, privacy: .public) activated=\(activated, privacy: .public)")
-                    }
-                }
+                finishHandoff(handoff)
                 if switches.chipProbeEnabled {
                     Self.chipProbeLogger.info("minimize-exec-result windowID=\(request.windowID?.rawValue ?? "nil", privacy: .public) success=\(exec.success, privacy: .public) preSwitched=\(preSwitched, privacy: .public) mechanism=\(exec.mechanism, privacy: .public) verifiedMinimized=\(String(describing: exec.verifiedMinimized), privacy: .public)")
                 }
@@ -1073,7 +1116,14 @@ struct PlatformActionExecutor {
             }
             return false
         case .closeWindow:
-            if windowExecutor.close(handle) { return true }
+            // Same hand-off as minimize: closing the active app's key window otherwise makes AppKit
+            // raise that app's next window over whatever was directly beneath.
+            let handoff = beginHandoff(handle: handle, record: record, snapshot: snapshot,
+                                       onHandoffActivePrediction: onHandoffActivePrediction, patience: .close)
+            if windowExecutor.close(handle) {
+                finishHandoff(handoff)
+                return true
+            }
             if justUnhid {
                 usleep(100_000)
                 if let h = windowExecutor.captureHandle(for: target, attempts: 2, retryIntervalMicroseconds: 100_000) {
@@ -1085,6 +1135,70 @@ struct PlatformActionExecutor {
             return executeAppFallback(request: request, record: record)
         case .newWindow:
             return performNewWindow(record: record)
+        }
+    }
+
+    private struct Handoff {
+        var targetPID: pid_t?
+        var windowID: CGWindowID?
+        var preSwitched = false
+    }
+
+    /// How long the hand-off may wait on the target app's AX before acting anyway. Minimize keeps
+    /// the 100ms cap (the click must not lag behind the genie); close has no animation to protect,
+    /// and a loaded Finder answers AX in 100–400ms right after a front switch — closing before it
+    /// has processed the deactivation is exactly what promotes a sibling.
+    struct HandoffPatience {
+        let focusedReadBudget: TimeInterval
+        let deactivationCap: TimeInterval
+        static let minimize = HandoffPatience(focusedReadBudget: 0, deactivationCap: 0.1)
+        static let close = HandoffPatience(focusedReadBudget: 0.5, deactivationCap: 0.5)
+    }
+
+    /// Front hand-off before the frontmost focused window leaves the screen (minimize or close):
+    /// whoever is directly beneath takes the front (`MinimizeHandoffTarget`).
+    private func beginHandoff(
+        handle: AccessibilityWindowActionExecutor.WindowHandle,
+        record: WindowRecord,
+        snapshot: DockSnapshot,
+        onHandoffActivePrediction: ((WindowID) -> Void)?,
+        patience: HandoffPatience
+    ) -> Handoff {
+        let verdict = windowExecutor.findBackgroundActivationTarget(
+            for: handle, record: record, snapshot: snapshot, focusedReadBudget: patience.focusedReadBudget
+        )
+        // 接手者预测尽早回传（动作尚未执行）：越早写乐观 .active，越能覆盖极快的
+        // 「收窗 1 → 点窗 2」第二击。动作失败时预测由顶替清除自愈（目标仍 .active 兑现）。
+        switch verdict {
+        case .switchTo(_, _, let windowID), .siblingTakesOver(let windowID):
+            onHandoffActivePrediction?(windowID)
+        case .none:
+            break
+        }
+        var handoff = Handoff()
+        if case .switchTo(let pid, let wid, _) = verdict {
+            handoff.targetPID = pid
+            handoff.windowID = wid
+            handoff.preSwitched = windowExecutor.switchFrontmostForHandoff(
+                toPID: pid, windowID: wid, awaitingDeactivationOf: handle.pid,
+                deactivationCap: patience.deactivationCap
+            )
+        }
+        return handoff
+    }
+
+    /// After the window is gone: key the hand-off window, or activate its app if the pre-switch was unavailable.
+    private func finishHandoff(_ handoff: Handoff) {
+        if handoff.preSwitched, let targetPID = handoff.targetPID, let handoffWindowID = handoff.windowID {
+            windowExecutor.makeKeyAfterHandoff(pid: targetPID, windowID: handoffWindowID)
+        }
+        if !handoff.preSwitched, let targetPID = handoff.targetPID {
+            usleep(Self.postMinimizeActivateDelayMicroseconds)
+            let activated = NSRunningApplication(processIdentifier: targetPID)?
+                .activate(options: [.activateIgnoringOtherApps]) ?? false
+            if switches.chipProbeEnabled {
+                Self.chipProbeLogger.info("postactivate-background-fallback pid=\(targetPID, privacy: .public) activated=\(activated, privacy: .public)")
+            }
         }
     }
 

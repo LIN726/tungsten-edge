@@ -40,6 +40,14 @@ struct ShelfFramePreferenceKey: PreferenceKey {
     }
 }
 
+struct TrashFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
 // MARK: - Drag-reorder preference (任务条拖动重排 路线 A 自绘拖动)
 
 /// Collects live chip frames by id in the `"strip"` space — feeds the floating drag copy's

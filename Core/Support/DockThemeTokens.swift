@@ -279,7 +279,7 @@ struct DockThemeTokens: Equatable {
 
     // MARK: 抽屉胶囊
 
-    /// 抽屉为空时的九宫格占位符号。
+    /// 抽屉为空时的四宫格占位符号。
     let capsuleGlyph: DockTint
     /// 拖卡悬到胶囊上的「微微发光」（去掉过生硬白圈后的替代反馈，owner 2026-06-21）。
     let capsuleStashGlow: DockTint

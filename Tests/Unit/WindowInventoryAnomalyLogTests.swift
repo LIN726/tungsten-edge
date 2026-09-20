@@ -365,6 +365,7 @@ final class WindowInventoryAnomalyLogTests: XCTestCase {
             InventorySeatReleasedReason.leftCGList,
             .absentBeyondGrace,
             .phantomHealed,
+            .mergedIntoTabbedWindow,
         ] {
             let payload = try XCTUnwrap(InventorySeatReleasePlan.payloads(
                 for: snapshot,

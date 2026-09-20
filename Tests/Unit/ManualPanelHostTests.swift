@@ -4,6 +4,23 @@ import XCTest
 
 @MainActor
 final class ManualPanelHostTests: XCTestCase {
+    private final class ResizeModel: ObservableObject {
+        @Published var height: CGFloat = 54
+    }
+
+    private struct ResizingProbe: View {
+        @ObservedObject var model: ResizeModel
+
+        var body: some View {
+            HStack(spacing: 0) {
+                Color.red.frame(width: model.height, height: model.height)
+                Color.blue.frame(width: model.height * 3, height: model.height)
+                    .animation(.linear(duration: 1), value: model.height)
+            }
+            .padding(20)
+        }
+    }
+
     private struct SizedProbeView: View {
         let size: CGSize
 
@@ -117,6 +134,31 @@ final class ManualPanelHostTests: XCTestCase {
         XCTAssertNil(content.window)
         XCTAssertFalse(panel.contentView === content)
         XCTAssertTrue(host.contentView === content)
+    }
+
+    func testInteractiveResizeMeasuresPublishedSizeWithoutWaitingForRunLoop() {
+        let panel = makePanel(size: NSSize(width: 256, height: 94))
+        let model = ResizeModel()
+        let presentation = PanelHeightResizePresentation()
+        presentation.isActive = true
+        let content = NSHostingView(rootView: ResizingProbe(model: model)
+            .modifier(PanelHeightResizeModifier(presentation: presentation)))
+        let host = ManualPanelHost(contentView: content, in: panel)
+        host.layoutContent()
+
+        // Reverse direction repeatedly: neither a stale fitting size nor a label-width
+        // animation may put the next panel frame on a different scale from its content.
+        for height: CGFloat in [55, 70, 40, 80, 54] {
+            model.height = height
+            host.layoutContent()
+            let expected = NSSize(width: height * 4 + 40, height: height + 40)
+            XCTAssertEqual(host.fittingSize, expected)
+            panel.setFrame(NSRect(origin: .zero, size: expected), display: false)
+            panel.layoutIfNeeded()
+            host.layoutContent()
+            XCTAssertEqual(content.frame.size, expected)
+            XCTAssertEqual(host.fittingSize, expected)
+        }
     }
 
     private func makePanel(size: NSSize = NSSize(width: 400, height: 100)) -> NonConstrainingPanel {

@@ -35,12 +35,42 @@ enum WindowTitleTextMetrics {
 
 }
 
+/// 标签变长变短那条路的曲线，只驱动条内的 `LabelBoxWidthDriver`；面板底板不跑自己的动画，而是在
+/// `PanelCoordinator.beginLabelWidthFollow` 的跟随窗里逐帧量内容宽、直接设 frame（同步由构造保证）。
+///
+/// 默认起步轻、收尾长（owner 2026-09-12 要「柔和」）。`DOCK_LABEL_ANIM="ms,c1x,c1y,c2x,c2y"` 可以不重装
+/// 试别的组，进程启动时读一次；选定后改 `defaultCurve`。跟随窗的时长跟着 `curve.duration` 走。
+enum LabelWidthAnimation {
+    struct Curve: Equatable {
+        let duration: TimeInterval
+        let c1x: Double, c1y: Double, c2x: Double, c2y: Double
+    }
+
+    static let defaultCurve = Curve(duration: 0.60, c1x: 0.5, c1y: 0, c2x: 0.15, c2y: 1)   // owner 2026-09-13：起点缓、整体长
+    static let curve: Curve = parse(DebugSwitch.labelAnim.value()) ?? defaultCurve
+
+    static var swiftUI: Animation {
+        .timingCurve(curve.c1x, curve.c1y, curve.c2x, curve.c2y, duration: curve.duration)
+    }
+
+
+    /// "ms,c1x,c1y,c2x,c2y" → 曲线；格式不对、时长非正、控制点 x 越界（贝塞尔要求 0…1）→ nil，走默认。
+    static func parse(_ raw: String?) -> Curve? {
+        guard let raw else { return nil }
+        let parts = raw.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard parts.count == 5, let ms = parts[0], let c1x = parts[1], let c1y = parts[2],
+              let c2x = parts[3], let c2y = parts[4], ms > 0,
+              (0...1).contains(c1x), (0...1).contains(c2x) else { return nil }
+        return Curve(duration: ms / 1000, c1x: c1x, c1y: c1y, c2x: c2x, c2y: c2y)
+    }
+}
+
 /// 带标题窗口卡「药丸」的布局常量。**渲染与推导必须共用它**——tooltip 的锚点契约是 pill rect
 /// （见 `PanelGeometry.windowTitleTooltipTargetFrame`），而屏幕坐标探针为了躲开按压缩放改量的是
 /// 整张卡的矩形，pill rect 只能由这些常量推出来。两处各写一份迟早对不上，理由同 `WindowTitleTextMetrics`。
 enum ChipPillMetrics {
-    /// 卡片总高（= 面板内容高，`DockSize` 中档基线）。
-    /// **必须等于 `DockSize.medium.panelHeight`**：卡撑满条高、上下不留空隙，
+    /// 卡片总高（= 面板内容高，`DockPanelHeight.native` 基线）。
+    /// **必须等于 `DockPanelHeight.native.points`**：卡撑满条高、上下不留空隙，
     /// 任务条空白区右键的判定就建立在「没有垂直空隙」上。2026-08-16 随中档 52→54 一起改。
     static let chipHeight: CGFloat = 54
     /// 药丸的布局盒高度。**悬停时不再变**（2026-08-16：应用名挪进了图标上方的气泡，
@@ -146,13 +176,29 @@ enum ChipPillMetrics {
 
     static func height(scale: CGFloat) -> CGFloat { boxHeight * scale }
 
-    /// 药丸宽度 = 左右内边距 + 图标槽 + 间距 + 标题实际渲染宽度（受 `WindowTitleTextMetrics` 上限约束）。
-    static func width(title: String, scale: CGFloat) -> CGFloat {
-        let titleWidth = min(
+    /// 标签盒的宽度：标题实际渲染宽度（受 `WindowTitleTextMetrics` 上限约束）向上取整。
+    ///
+    /// `ChipView.multiWindowChip` 用它给标签一个**显式**宽度，而不是让 `Text` 自己撑——
+    /// 标签变长变短时这个宽度随任务条布局动画插值，文字本身按身份换、不在中间宽度上重排。
+    /// 也因此渲染出来的药丸宽度与下面 `width(title:scale:)` 逐 pt 一致。
+    static func labelWidth(title: String, scale: CGFloat) -> CGFloat {
+        ceil(min(
             WindowTitleTextMetrics.intrinsicWidth(of: title, scale: scale),
             WindowTitleTextMetrics.maximumWidth(for: scale)
-        )
-        return (2 * horizontalPadding + iconSlot + iconSpacing) * scale + ceil(titleWidth)
+        ))
+    }
+
+    /// 标题是否超过上限、需要截断。超过时 `Text` 拿到的是上限宽度并自己加省略号；
+    /// 没超过时 `Text` 按自然宽度画（不给它定宽——SwiftUI 量出的文字宽可能比 AppKit 多零点几 pt，
+    /// 定宽会把最后一个字吞成省略号）。
+    static func labelTruncates(title: String, scale: CGFloat) -> Bool {
+        WindowTitleTextMetrics.intrinsicWidth(of: title, scale: scale)
+            > WindowTitleTextMetrics.maximumWidth(for: scale)
+    }
+
+    /// 药丸宽度 = 左右内边距 + 图标槽 + 间距 + 标签盒宽度。
+    static func width(title: String, scale: CGFloat) -> CGFloat {
+        (2 * horizontalPadding + iconSlot + iconSpacing) * scale + labelWidth(title: title, scale: scale)
     }
 
     /// 由稳定的卡片屏幕矩形推出药丸屏幕矩形（macOS 屏幕坐标 y 向上）。
@@ -495,8 +541,8 @@ enum WindowTitleTooltipEvent: Equatable {
 /// 外推到 0 应在 7.1pt 处，实际 6.5pt 就收——**差的那截就是圆头**（owner 说的「更圆润」）。
 ///
 /// **整颗随任务条档位缩放**（owner 2026-08-17）：上表是**中档**的值，其余档位整体乘
-/// `DockSize.scale`。系数用现成的 `DockSize.scale` 就对——它已经是「中档归一」
-/// （`panelHeight / DockSize.medium.panelHeight`），中档恒等于 1.0，所以中档这一列
+/// `DockPanelHeight.scale`。系数用现成的 `DockPanelHeight.scale` 就对——它已经是「原生高度归一」
+/// （`points / DockPanelHeight.native.points`），54pt 时恒等于 1.0，所以那一列
 /// 逐字保持实测原值。别再另算一个系数，更别拿条高除以某个字面量。
 struct WindowTitleTooltipStyle: Equatable {
     /// 档位系数（中档 = 1）。

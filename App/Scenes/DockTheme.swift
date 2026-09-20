@@ -322,6 +322,12 @@ extension View {
         modifier(DockShadowModifier(shadow: shadow))
     }
 
+    /// `visible == false` attaches nothing at all — a zero-alpha `.shadow` is still a filter.
+    @ViewBuilder
+    func dockShadow(_ shadow: DockShadow, visible: Bool) -> some View {
+        if visible { dockShadow(shadow) } else { self }
+    }
+
     /// 条件式光晕：`active` 为假时半径与不透明度都归零（等价于不画）。
     /// 光晕不在「不烘投影」的范围内：它是卡自己的一部分（拖动中也该跟着走），不是落地要交接的投影。
     func dockGlow(_ tint: DockTint, radius: CGFloat, active: Bool) -> some View {

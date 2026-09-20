@@ -13,6 +13,7 @@ import UniformTypeIdentifiers
 struct StripFileDropDelegate: DropDelegate {
     /// nil = 中转格被用户关掉（不是「帧还没量到」，后者仍传 `.zero`）。
     let shelfFrame: CGRect?
+    let trashFrame: CGRect?
     let folderFrames: [String: CGRect]
     let orderedPaths: [String]
     var headSlack: CGFloat = StripDropRouting.defaultHeadSlack
@@ -34,6 +35,11 @@ struct StripFileDropDelegate: DropDelegate {
     let currentFrozenWidth: () -> CGFloat?
     let currentStripRect: () -> CGRect
 
+    /// The target the latest hover callback resolved, read by `StripDropBadgeOverlay` right after it
+    /// forwards the same callback. Main thread only. An orphan `dropUpdated` after a drop can leave it
+    /// set: harmless, since only a `.copy` answer is rewritten and the next `dropEntered` overwrites it.
+    static var hoveredTarget: StripDropRouting.Target?
+
     /// 悬停期的目标（决定高亮与光标）。应用一律 `.keepApp`。
     private func route(_ info: DropInfo) -> StripDropRouting.Target {
         route(info, isApplicationDrag: DragPasteboardInspector.containsApplication())
@@ -47,7 +53,9 @@ struct StripFileDropDelegate: DropDelegate {
     private func route(_ info: DropInfo, isApplicationDrag: Bool) -> StripDropRouting.Target {
         StripDropRouting.route(location: info.location,
                                isApplicationDrag: isApplicationDrag,
+                               isTrashItemDrag: DragPasteboardInspector.containsOnlyTrashItems(),
                                shelfFrame: shelfFrame,
+                               trashFrame: trashFrame,
                                folderFrames: folderFrames,
                                orderedPaths: orderedPaths,
                                headSlack: headSlack)
@@ -59,13 +67,16 @@ struct StripFileDropDelegate: DropDelegate {
 
     func dropEntered(info: DropInfo) {
         let target = route(info)
+        Self.hoveredTarget = target
         trace("entered", info, target: target)
         onHoverBegan(target)
         onGhostMoved(DragPasteboardInspector.applicationBundleID(), info.location)
     }
 
+    /// Stays `.copy` over the Trash too: the badge-free answer is `StripDropBadgeOverlay`'s.
     func dropUpdated(info: DropInfo) -> DropProposal? {
         let target = route(info)
+        Self.hoveredTarget = target
         trace("updated", info, target: target)
         onHoverMoved(target)
         onGhostMoved(DragPasteboardInspector.applicationBundleID(), info.location)
@@ -73,6 +84,7 @@ struct StripFileDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
+        Self.hoveredTarget = nil
         trace("exited", info, target: route(info))
         onHoverEnded(false)   // 没有落定要接 → 空档当场收掉
     }
@@ -95,6 +107,7 @@ struct StripFileDropDelegate: DropDelegate {
         let target = route(info)
         let fileTarget = fileRoute(info)
         let location = info.location
+        Self.hoveredTarget = nil
         trace("perform", info, target: target)
         // 落定即灭高亮,同步清（系统在这之后仍可能补发孤立 dropUpdated,已被门控忽略）。
         // 传 true：空档要留到真图标进投影，由 `keepDroppedApplications` 收（外加兜底 Timer）。
@@ -114,7 +127,9 @@ struct StripFileDropDelegate: DropDelegate {
             }
         }
         group.notify(queue: .main) {
-            let urls = box.urls.compactMap { $0 }
+            // Second gate for Trash items (the first is the hover route): filtered before the app
+            // split, so a Trash `.app` cannot reach the keep path either.
+            let urls = box.urls.compactMap { $0 }.filter { !DragPasteboardInspector.isInsideTrash($0) }
             guard !urls.isEmpty else { return }
             // 落定这一刻按**真实 URL** 再判一次应用身份（悬停期读的是拖放剪贴板，只用来
             // 决定高亮和光标）。分流是硬的：`onCommit` 收到的绝不含应用。
@@ -141,6 +156,8 @@ struct StripFileDropDelegate: DropDelegate {
     enum DragPasteboardInspector {
         private struct Session {
             let changeCount: Int
+            /// Every dragged URL is inside a Trash: the whole drop is refused.
+            let containsOnlyTrashItems: Bool
             let containsApplication: Bool
             /// 第一个应用 bundle 的 id。**解析 Info.plist 是读盘**，所以一次拖放会话只做一次
             /// ——`dropUpdated` 每 ~50ms 一次，逐次读盘会把主线程拖垮。
@@ -160,14 +177,26 @@ struct StripFileDropDelegate: DropDelegate {
             currentSession().applicationBundleID
         }
 
+        static func containsOnlyTrashItems() -> Bool {
+            currentSession().containsOnlyTrashItems
+        }
+
+        /// Path components only — nothing inside the Trash is read.
+        static func isInsideTrash(_ url: URL) -> Bool {
+            TrashPath.isInsideTrash(url, homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+        }
+
         private static func currentSession() -> Session {
             let pasteboard = NSPasteboard(name: .drag)
             let changeCount = pasteboard.changeCount
             if let session, session.changeCount == changeCount { return session }
-            let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
+            let dragged = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
+            // Trash items are filtered before the app check: a mixed drag keeps only the rest.
+            let urls = dragged.filter { !isInsideTrash($0) }
             let apps = urls.filter(isApplication)
             let next = Session(
                 changeCount: changeCount,
+                containsOnlyTrashItems: !dragged.isEmpty && urls.isEmpty,
                 containsApplication: !apps.isEmpty,
                 applicationBundleID: apps.first.flatMap { Bundle(url: $0)?.bundleIdentifier }
             )
@@ -193,6 +222,117 @@ struct StripFileDropDelegate: DropDelegate {
         func set(_ url: URL?, at index: Int) {
             lock.lock(); defer { lock.unlock() }
             urls[index] = url
+        }
+    }
+}
+
+/// Removes the cursor badge over the Trash chip; everything else about the drop stays SwiftUI's.
+///
+/// SwiftUI's `.onDrop` only offers `.copy` (badge) / `.move` / `.forbidden`, and its real AppKit
+/// destination is a private subview spanning the strip — `NSWindow`'s dragging methods are never
+/// called during a session, so neither the window nor a parent view can rewrite the answer. AppKit
+/// hands the drag to the topmost registered view instead, so this view sits **over** that subview
+/// with the same frame (`.overlay` right after `.onDrop`), forwards every dragging message to it
+/// unchanged, and rewrites only the returned operation. SwiftUI therefore sees exactly the session it
+/// saw before — one enter, updates, one exit or perform — so highlight, ghost, frozen width and the
+/// watchdog are untouched. A view covering only the Trash chip would split that into exit/enter pairs.
+struct StripDropBadgeOverlay: NSViewRepresentable {
+    func makeNSView(context: Context) -> ForwardingView { ForwardingView() }
+    func updateNSView(_ nsView: ForwardingView, context: Context) {}
+
+    final class ForwardingView: NSView {
+        private weak var destination: NSView?
+
+        /// Observes drags only; clicks, hover and scrolling go to the content below.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            resolveDestination()
+            // SwiftUI may insert its destination view later in the same pass.
+            DispatchQueue.main.async { [weak self] in self?.resolveDestination() }
+        }
+
+        override func layout() {
+            super.layout()
+            if destination?.window !== window { resolveDestination() }
+        }
+
+        /// Registered only while the SwiftUI destination is known, with its exact types: unregistered,
+        /// AppKit targets SwiftUI directly and drops keep working (with the badge).
+        private func resolveDestination() {
+            let found = window == nil ? nil : Self.nearestDropDestination(from: self)
+            destination = found
+            let types = found?.registeredDraggedTypes ?? []
+            if Set(types) != Set(registeredDraggedTypes) {
+                unregisterDraggedTypes()
+                if !types.isEmpty { registerForDraggedTypes(types) }
+            }
+        }
+
+        /// The nearest registered view sharing an ancestor with `view` — the strip's only `.onDrop`.
+        /// The ancestor itself counts too, in case a SwiftUI version handles drops in the hosting view.
+        private static func nearestDropDestination(from view: NSView) -> NSView? {
+            var ancestor = view.superview
+            while let current = ancestor {
+                if let found = firstRegistered(in: current, excluding: view) { return found }
+                if !current.registeredDraggedTypes.isEmpty { return current }
+                ancestor = current.superview
+            }
+            return nil
+        }
+
+        private static func firstRegistered(in root: NSView, excluding excluded: NSView) -> NSView? {
+            for subview in root.subviews where subview !== excluded && !(subview is ForwardingView) {
+                if !subview.registeredDraggedTypes.isEmpty { return subview }
+                if let found = firstRegistered(in: subview, excluding: excluded) { return found }
+            }
+            return nil
+        }
+
+        private func liveDestination() -> NSView? {
+            if destination?.window == nil { resolveDestination() }
+            return destination
+        }
+
+        /// Read after forwarding: SwiftUI calls the delegate synchronously inside the forwarded call.
+        private func answer(_ proposed: NSDragOperation, _ sender: NSDraggingInfo) -> NSDragOperation {
+            let generic = StripDropRouting.usesGenericOperation(
+                hoveredTarget: StripFileDropDelegate.hoveredTarget,
+                proposedIsCopy: proposed == .copy,
+                sourceAllowsGeneric: sender.draggingSourceOperationMask.contains(.generic)
+            )
+            return generic ? .generic : proposed
+        }
+
+        override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+            guard let destination = liveDestination() else { return [] }
+            return answer(destination.draggingEntered(sender), sender)
+        }
+
+        override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+            guard let destination = liveDestination() else { return [] }
+            return answer(destination.draggingUpdated(sender), sender)
+        }
+
+        override func draggingExited(_ sender: NSDraggingInfo?) {
+            destination?.draggingExited(sender)
+        }
+
+        override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+            destination?.prepareForDragOperation(sender) ?? false
+        }
+
+        override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+            destination?.performDragOperation(sender) ?? false
+        }
+
+        override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+            destination?.concludeDragOperation(sender)
+        }
+
+        override func draggingEnded(_ sender: NSDraggingInfo) {
+            destination?.draggingEnded(sender)
         }
     }
 }

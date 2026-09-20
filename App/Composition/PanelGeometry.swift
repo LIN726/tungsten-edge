@@ -1,59 +1,63 @@
 import CoreGraphics
 
-/// 任务条尺寸档位。**按面板高度定档，缩放系数反推**——反过来（先定 0.85 这类系数再算高度）
-/// 会得到 44.2 这种高度，圆角、图标和分隔线全落在半像素上。
-enum DockSize: String, CaseIterable {
-    case small
-    case medium
-    case large
-    case extraLarge
+/// Taskbar height as the user dragged it: whole points, clamped to `minimum...maximum`.
+///
+/// Every scaled size multiplies `scale`, which is normalised to `native` (the real Dock's
+/// bar height) so that a bar at 54pt renders byte-for-byte the signed-off native pixels.
+/// Heights are rounded to whole points before anything derives from them; a fractional
+/// height would put corner radius, icons and the hairline divider on half pixels.
+struct DockPanelHeight: Equatable {
+    static let minimum: CGFloat = 40
+    static let maximum: CGFloat = 80
 
-    static let `default` = DockSize.medium
+    /// 54 = the native macOS Dock bar height (@2x screenshot: 108px). Icons (40pt,
+    /// `ChipHoverVisual.bareIconSize`) and `ChipPillMetrics.chipHeight` are tuned to it;
+    /// changing one without the others breaks the 0.741 icon/bar ratio.
+    static let native = DockPanelHeight(validated: 54)
+    static let `default` = native
 
-    /// 四档相差 8pt，中档对齐原生 Dock。
-    ///
-    /// **中档 2026-08-16 由 52 改成 54，对齐原生 macOS 26 Dock 实测值**（owner 拍板）。
-    /// 同一轮里图标从 36 跟到 40（`ChipHoverVisual.bareIconSize`），两者要一起改：
-    /// 原生实测 @2x 截图为条高 108px = 54pt、图标上下留白各 21px = 10.5pt，
-    /// 而 (54 − 40) / 2 = 7pt 标称留白 + 苹果图标资源自带的约 18% 透明边距，正好还原 10.5pt。
-    /// 单改一个会让图标/条高比偏离原生的 0.741。
-    ///
-    /// 这推翻了此前「中档必须逐字节等于 2026-07-30 之前」的冻结契约。
-    var panelHeight: CGFloat {
-        switch self {
-        case .small: return 46
-        case .medium: return 54
-        case .large: return 62
-        case .extraLarge: return 70
+    let points: CGFloat
+
+    /// Non-finite → default; otherwise rounded to whole points and clamped.
+    init(clamping raw: CGFloat) {
+        guard raw.isFinite else {
+            self = .default
+            return
+        }
+        self.init(validated: min(max(raw.rounded(), Self.minimum), Self.maximum))
+    }
+
+    private init(validated points: CGFloat) {
+        self.points = points
+    }
+
+    /// Multiplier for every tier-scaled size. Exactly `1.0` at `native`.
+    var scale: CGFloat { points / Self.native.points }
+
+    /// Legacy four-tier raw values (`com.tungsten.edge.dockSize`), read once for migration.
+    static func migratingLegacyTier(rawValue: String) -> DockPanelHeight? {
+        switch rawValue {
+        case "small": return DockPanelHeight(clamping: 46)
+        case "medium": return DockPanelHeight(clamping: 54)
+        case "large": return DockPanelHeight(clamping: 62)
+        case "extraLarge": return DockPanelHeight(clamping: 70)
+        default: return nil
         }
     }
 
-    /// 所有随档位缩放的尺寸都乘它。中档恒为 `1.0`。
-    var scale: CGFloat { panelHeight / DockSize.medium.panelHeight }
-
-    var title: String {
-        switch self {
-        case .small: return String(localized: "Small")
-        case .medium: return String(localized: "Medium")
-        case .large: return String(localized: "Large")
-        case .extraLarge: return String(localized: "Extra Large")
-        }
-    }
-
-    /// 面板几何的唯一来源：AppKit 侧（PanelCoordinator）和 SwiftUI 侧都从这里取，
-    /// 不各自算一份。
+    /// The single source of panel geometry: AppKit (`PanelCoordinator`) and SwiftUI both
+    /// read it, never their own copy.
     var metrics: PanelLayoutMetrics {
         PanelLayoutMetrics(
-            panelHeight: panelHeight,
-            // 阴影边距**不随档位缩放**：阴影 token 是冻结的（深色那套本来就已经超预算 3pt），
-            // 跟着缩会动到已经定稿的观感。
+            panelHeight: points,
+            // Shadow padding never scales: the shadow tokens are frozen.
             shadowPadding: PanelLayoutMetrics.shadowPadding,
-            // 写成表达式而不是字面值：以前 52 + 2×20 = 92 这层关系只存在于注释里，
-            // 改高度时极易漏掉窗口高度。
-            windowHeight: panelHeight + 2 * PanelLayoutMetrics.shadowPadding,
+            // Written as an expression, not a literal: the relation used to live only in a
+            // comment and is exactly what a height change forgets.
+            windowHeight: points + 2 * PanelLayoutMetrics.shadowPadding,
             bottomGap: 8,
             outerMargin: 12,
-            capsuleWidth: panelHeight,
+            capsuleWidth: points,
             capsuleGap: 8,
             minimumDockWidth: 120 * scale,
             minimumDrawerExtent: 120
@@ -72,11 +76,27 @@ struct PanelLayoutMetrics: Equatable {
     var minimumDockWidth: CGFloat
     var minimumDrawerExtent: CGFloat
 
-    /// 固定值，不随档位变（见 `DockSize.metrics` 的说明）。
+    /// Fixed; never scales with the bar height (see `DockPanelHeight.metrics`).
     static let shadowPadding: CGFloat = 20
 
-    /// 中档，仅作为既有默认参数与单测的基线；真正的取值走 `DockSize.metrics`。
-    static let tungstenEdge = DockSize.medium.metrics
+    /// Native-height baseline for default parameters and tests; real values come from
+    /// `DockPanelHeight.metrics`.
+    static let tungstenEdge = DockPanelHeight.native.metrics
+}
+
+/// The drawer capsule's four-up preview (2 × 2). Values are at the native height and scale with the
+/// bar: `columns × icon + spacing + 2 × padding` must fit `capsuleWidth` at every height
+/// (`PanelGeometryTests.testCapsuleGridContentFitsEveryHeight`).
+enum DrawerCapsulePreviewMetrics {
+    static let columns = 2
+    static let limit = columns * columns
+    static let iconSize: CGFloat = 17
+    static let gridSpacing: CGFloat = 4
+    static let gridPadding: CGFloat = 7
+
+    static var contentWidth: CGFloat {
+        CGFloat(columns) * iconSize + CGFloat(columns - 1) * gridSpacing + 2 * gridPadding
+    }
 }
 
 struct PanelScreenGeometry: Equatable {
@@ -99,14 +119,18 @@ enum PanelGeometry {
     /// 视图侧和这里必须用同一个值（视图 `.padding(它)`，这里再减回去）。
     static let windowTitleTooltipShadowPadding: CGFloat = 8
 
+    /// The bar and the drawer capsule to its right are centered as one group, the way the native
+    /// Dock centers its whole row. Centering the bar alone leaves the set (gap + capsule) / 2 right
+    /// of center; at the width cap the group keeps `outerMargin` on both sides.
     static func dockTargetFrame(
         contentWidth: CGFloat,
         on screen: PanelScreenGeometry,
         metrics: PanelLayoutMetrics = .tungstenEdge
     ) -> CGRect {
-        let maxWidth = screen.frame.width - 2 * (metrics.outerMargin + metrics.capsuleGap + metrics.capsuleWidth)
+        let trailing = metrics.capsuleGap + metrics.capsuleWidth
+        let maxWidth = screen.frame.width - 2 * metrics.outerMargin - trailing
         let panelWidth = max(min(contentWidth, maxWidth), metrics.minimumDockWidth)
-        let x = screen.frame.minX + (screen.frame.width - panelWidth) / 2
+        let x = screen.frame.minX + (screen.frame.width - (panelWidth + trailing)) / 2
         return CGRect(
             x: x - metrics.shadowPadding,
             y: screen.frame.minY + metrics.bottomGap - metrics.shadowPadding,

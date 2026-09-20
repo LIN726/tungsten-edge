@@ -90,6 +90,48 @@ enum TabFoldDecision {
     }
 }
 
+/// Pass A「并入标签」的纯决策层：一个已落座、**未最小化、app 未隐藏**的座位，其 activeCgID 这轮
+/// 离开了 AX 却仍在 CG 且没有 destroy tombstone——它是被合并进了另一扇窗（「合并所有窗口」/ 把标签
+/// 拖进别的窗的标签栏），还是只是一次 AX 漏读？
+///
+/// 原生标签 = N 个真实 NSWindow；合并后原窗成为 order-out 后台标签：离开 AX、仍在 CG、`onscreen=false`，
+/// 且 CG bounds 被系统改成了所属窗口的 frame。原来这条路无条件保座位（「AX 缺席不能证明关窗」），于是
+/// 一扇窗两张卡；接着同 frame 有两个老座位，切标签的顶替规则拒绝接手，每切一次再裂一张（2026-09-12 实测）。
+///
+/// 释放条件（全满足）：候选在 CG 里 **不在屏上**（真可见窗口漏读时 CG 说 onscreen=true，不释放）；
+/// 候选的 **CG bounds**（不是座位里过时的 AX 帧）与至少一个 **AX 在场且 min=false** 的兄弟座位逐像素同
+/// frame。归属唯一时回传 owner，调用方把候选记入其历史（下次最小化爆发按成员秒折）。
+enum TabMergeDecision {
+
+    /// 本轮 AX 在场（activeCgID 仍在 eligible 里）的兄弟座位摘要；`bounds` 取本轮 AX 快照的帧。
+    struct AXPresentSeat {
+        let activeCgID: CGWindowID
+        let bounds: CGRect?
+        let isMinimized: Bool
+    }
+
+    enum Verdict: Equatable {
+        /// 并入了标签 → 释放座位。`ownerActiveCgID` 非 nil = 归属唯一，调用方做成员学习。
+        case release(ownerActiveCgID: CGWindowID?)
+        case retain
+    }
+
+    static func verdict(
+        candidateIsOnScreen: Bool,
+        candidateCGBounds: CGRect?,
+        candidateSeatBounds: CGRect?,
+        axPresentSeats: [AXPresentSeat],
+        frameKey: (CGRect?) -> String?
+    ) -> Verdict {
+        guard !candidateIsOnScreen else { return .retain }
+        guard let key = frameKey(candidateCGBounds ?? candidateSeatBounds) else { return .retain }
+        let owners = axPresentSeats.filter { !$0.isMinimized && frameKey($0.bounds) == key }
+        if owners.count == 1 { return .release(ownerActiveCgID: owners[0].activeCgID) }
+        if owners.count > 1 { return .release(ownerActiveCgID: nil) }
+        return .retain
+    }
+}
+
 /// 幽灵座位自愈的纯决策层。
 ///
 /// 幽灵座位 = 折叠判定失手时从 min=true 爆发候选里裂出来的多余座位（典型：dock 启动时窗口

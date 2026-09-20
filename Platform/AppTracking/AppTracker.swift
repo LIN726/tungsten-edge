@@ -65,11 +65,25 @@ struct WindowEntry {
 protocol AppTrackerProcessProviding: Sendable {
     func isAlive(pid: pid_t) -> Bool
     func identity(pid: pid_t, bundleID: String?) -> ScanAdmissionDecision.ProcessIdentity
+    /// Whether the process currently runs with the `.regular` activation policy; `nil` when
+    /// LaunchServices cannot resolve the pid. Policy only — never liveness (see `isAlive`).
+    func isRegularApplication(pid: pid_t) -> Bool?
+}
+
+extension AppTrackerProcessProviding {
+    /// Unknown is the safe answer: `NonRegularEvictionDecision` treats it as "keep".
+    func isRegularApplication(pid: pid_t) -> Bool? { nil }
 }
 
 struct LiveAppTrackerProcessProvider: AppTrackerProcessProviding {
     func isAlive(pid: pid_t) -> Bool {
         ProcessLiveness.isAlive(pid: pid)
+    }
+
+    func isRegularApplication(pid: pid_t) -> Bool? {
+        // One LaunchServices round trip; reached only for a seatless tracked process after a
+        // seat release or on the 60s slow scan, never per tick for every app.
+        NSRunningApplication(processIdentifier: pid).map { $0.activationPolicy == .regular }
     }
 
     func identity(pid: pid_t, bundleID: String?) -> ScanAdmissionDecision.ProcessIdentity {
@@ -94,6 +108,11 @@ final class AppTracker: ObservableObject {
     private var reconcileTimer: Timer?
     private var frontmostPollTimer: Timer?
     private var isScanningCandidates = false
+    /// Per-pid retry task asking whether a freshly seatless process is still `.regular`
+    /// (`scheduleNonRegularEviction`). Ice flips back to `.accessory` right after its settings
+    /// window closes, sometimes after our destroy handler has already landed, hence the retries.
+    private var nonRegularEvictionTasks: [pid_t: Task<Void, Never>] = [:]
+    private static let nonRegularEvictionDelays: [TimeInterval] = [0.2, 0.5, 1.0, 2.0, 5.0]
     /// 动作路径用的 AX 元素旁路缓存。写在这里（盘点读本来就拿着元素），读在
     /// `PlatformActionExecutor`。刻意不进 `DockSnapshot`，理由见 `AXElementCache`。
     private let elementCache = AXElementCache.shared
@@ -249,7 +268,8 @@ final class AppTracker: ObservableObject {
         )))
         // 通知先订阅再 seed：seed 期间的启动/退出事件不再漏（addApp 有 apps[pid] == nil guard，重复准入安全）。
         subscribeWorkspaceNotifications()
-        // 屏参数变化：跳一拍再刷，让 `DisplayTopologyStore` 的同步观察者先把表换好。
+        // Screen parameters changed: skip one turn before refreshing so `TaskbarScreenOrchestrator`
+        // has pushed the shared topology snapshot into the common table first.
         screenParametersObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -470,6 +490,15 @@ final class AppTracker: ObservableObject {
         var healedSeats: [(cgID: CGWindowID, token: String, episodeID: UUID)] = []
         var releasedSeats: [(seat: WindowEntry, reason: InventorySeatReleasedReason)] = []
         var tearOutCgIDs: Set<CGWindowID> = []
+        // 并入标签释放的座位 → 归属座位（成员学习，Pass A 结束后统一回写，owner 可能还没落座）。
+        var mergedIntoOwner: [(cgID: CGWindowID, ownerActiveCgID: CGWindowID)] = []
+        // TabMergeDecision 的兄弟视角：本轮 AX 在场的老座位，帧取本轮 AX 快照（座位里的可能过时）。
+        func axPresentSeatsForMerge(excluding candidate: CGWindowID) -> [TabMergeDecision.AXPresentSeat] {
+            app.windowOrder.compactMap { id in
+                guard id != candidate, let snap = eligibleByCgID[id] else { return nil }
+                return TabMergeDecision.AXPresentSeat(activeCgID: id, bounds: snap.bounds, isMinimized: snap.isMinimized)
+            }
+        }
 
         // Pass A：每个老座位尝试延续
         for cgID in app.windowOrder {
@@ -610,10 +639,25 @@ final class AppTracker: ObservableObject {
                             place(seat)                   // 真最小化(Safari 离开 AX)/ 应用隐藏 → 保座位
                         }
                     } else {
-                        seat.isFocused = false
-                        // AX 成功不代表窗口清单完整。只要 CG 仍确认当前 activeCgID 存在且没有
-                        // destroy tombstone，就保留原座位；AX 缺席永远不能自行证明窗口已关闭。
-                        place(seat)
+                        // 未最小化、app 未隐藏却离开 AX：先问是不是被合并进了别的窗成后台标签
+                        // （TabMergeDecision：CG 说不在屏上 + CG bounds 与某 AX 在场兄弟座位同 frame）。
+                        // 是 → 释放，否则一扇窗两张卡、之后每切一次标签再裂一张。
+                        let mergeVerdict = TabMergeDecision.verdict(
+                            candidateIsOnScreen: onScreenCGIDs.contains(X),
+                            candidateCGBounds: cgSnapshot.boundsByWindowID[X],
+                            candidateSeatBounds: seat.bounds,
+                            axPresentSeats: axPresentSeatsForMerge(excluding: X),
+                            frameKey: fk
+                        )
+                        if case .release(let owner) = mergeVerdict {
+                            releasedSeats.append((seat, .mergedIntoTabbedWindow))
+                            if let owner { mergedIntoOwner.append((cgID: X, ownerActiveCgID: owner)) }
+                        } else {
+                            seat.isFocused = false
+                            // AX 成功不代表窗口清单完整。只要 CG 仍确认当前 activeCgID 存在且没有
+                            // destroy tombstone，就保留原座位；AX 缺席永远不能自行证明窗口已关闭。
+                            place(seat)
+                        }
                     }
                 } else {
                     // 连 CG 都没了 → 真关闭，丢弃。
@@ -632,6 +676,11 @@ final class AppTracker: ObservableObject {
         // → 尺寸兜底(同宽高+屏幕外,救"窗口移动后后台标签 AX 坐标过时")。折叠且归属唯一时把
         // 候选记入座位历史(成员学习),下次折叠不再依赖几何。
         // 非 min 的同 frame 窗口是"两个独立窗口重叠"的合法场景,照常各自建座位。
+        // 并入标签的成员学习：归属座位这轮一定在 Pass A 落座（它 AX 在场），在 Pass B 之前回写，
+        // 同一轮若紧接着最小化爆发也能按成员折叠。
+        for merged in mergedIntoOwner {
+            newByID[merged.ownerActiveCgID]?.formerCgIDs.insert(merged.cgID)
+        }
         var placedForFold: [TabFoldDecision.PlacedSeat] = newOrder.compactMap { id in
             guard let e = newByID[id] else { return nil }
             return TabFoldDecision.PlacedSeat(activeCgID: e.cgWindowID, bounds: e.bounds,
@@ -844,10 +893,14 @@ final class AppTracker: ObservableObject {
             shadowPoolDiagnosticsByPID[pid] = diagnostic
         }
 
+        let hadSeats = !app.windowOrder.isEmpty
         app.windowOrder = newOrder
         app.windowsByID = newByID
         apps[pid] = app
         let changed = seatSignature(app) != before
+        // Last seat gone → ask (with retries) whether the process is still `.regular`; a menu-bar
+        // app that flipped back to `.accessory` must not keep projecting an `app-*` fallback chip.
+        if hadSeats, newOrder.isEmpty { scheduleNonRegularEviction(pid: pid) }
         gateStates[pid] = ReconcileGateState(
             lastCGIDs: cgPidIDs,
             lastFullReadUptime: uptimeProvider(),
@@ -1252,6 +1305,7 @@ final class AppTracker: ObservableObject {
         scanMemos.removeValue(forKey: pid)
         scanDirtyPIDs.remove(pid)
         scanCandidateCache = nil
+        nonRegularEvictionTasks.removeValue(forKey: pid)?.cancel()
 
         // Finder relaunches immediately via launchd. Keep the entry (no windows) so the chip
         // stays visible during the gap. handleAppLaunched will replace this stale entry with
@@ -1350,6 +1404,75 @@ final class AppTracker: ObservableObject {
         }
     }
 
+    // MARK: - Non-Regular Eviction
+
+    /// The system Dock drops a process the moment it leaves `.regular`; a seatless `AppEntry` would
+    /// otherwise keep its `app-*` fallback chip for the process's whole life (`reconcile()` only
+    /// removes dead pids). Retries cover the policy flipping slightly after the window close.
+    private func scheduleNonRegularEviction(pid: pid_t) {
+        nonRegularEvictionTasks[pid]?.cancel()
+        let probedIdentity = processIdentity(pid: pid, bundleID: apps[pid]?.bundleIdentifier)
+        nonRegularEvictionTasks[pid] = Task { @MainActor [weak self] in
+            for delay in Self.nonRegularEvictionDelays {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard !Task.isCancelled, let self else { return }
+                switch self.evictIfNonRegular(pid: pid, probedIdentity: probedIdentity) {
+                case .keepRegular, .keepPolicyUnknown:
+                    continue
+                case .evict, .keepUntracked, .keepFinder, .keepHasSeats, .keepIdentityChanged:
+                    self.nonRegularEvictionTasks.removeValue(forKey: pid)
+                    return
+                }
+            }
+            self?.nonRegularEvictionTasks.removeValue(forKey: pid)
+        }
+    }
+
+    @discardableResult
+    private func evictIfNonRegular(
+        pid: pid_t,
+        probedIdentity: ScanAdmissionDecision.ProcessIdentity? = nil
+    ) -> NonRegularEvictionDecision.Verdict {
+        let app = apps[pid]
+        let currentIdentity = processIdentity(pid: pid, bundleID: app?.bundleIdentifier)
+        let verdict = NonRegularEvictionDecision.verdict(
+            isTracked: app != nil,
+            isFinder: FinderWindowRules.isFinder(bundleIdentifier: app?.bundleIdentifier),
+            hasSeats: !(app?.windowOrder.isEmpty ?? true),
+            identityMatches: probedIdentity.map {
+                ScanAdmissionDecision.ProcessIdentity.matches(probed: $0, current: currentIdentity)
+            } ?? true,
+            isRegular: app == nil ? nil : processProvider.isRegularApplication(pid: pid)
+        )
+        if verdict == .evict { evictNonRegularEntry(pid: pid) }
+        return verdict
+    }
+
+    private func evictNonRegularEntry(pid: pid_t) {
+        nonRegularEvictionTasks.removeValue(forKey: pid)?.cancel()
+        guard let app = apps[pid], app.windowOrder.isEmpty else { return }
+        logger.info("evict: pid=\(pid) \(app.appName, privacy: .public) left .regular with no seats, dropping the app-level fallback")
+        cgEventGeneration &+= 1
+        invalidateEventReads(pid: pid)
+        observers[pid]?.stop()
+        observers.removeValue(forKey: pid)
+        clearInventoryDiagnostics(pid: pid)
+        gateStates.removeValue(forKey: pid)
+        scanMemos.removeValue(forKey: pid)
+        scanDirtyPIDs.remove(pid)
+        scanCandidateCache = nil
+        apps.removeValue(forKey: pid)
+        appOrder.removeAll { $0 == pid }
+        elementCache.removeAll(pid: pid)
+        rebuildSnapshot()
+    }
+
+    private func sweepNonRegularZeroSeatEntries() {
+        for pid in appOrder where apps[pid]?.windowOrder.isEmpty == true {
+            evictIfNonRegular(pid: pid)
+        }
+    }
+
     // MARK: - Window Enumeration
 
     private func enumerateWindows(for pid: pid_t, source: InventoryReconcileSource) {
@@ -1372,6 +1495,7 @@ final class AppTracker: ObservableObject {
             subrole: snap.subrole,
             bounds: snap.bounds,
             alpha: alpha,
+            isMinimized: snap.isMinimized,
             application: application
         )
     }
@@ -1880,7 +2004,12 @@ final class AppTracker: ObservableObject {
             slowFullScanDue = lastFullScanUptime.map {
                 uptime - $0 >= ScanProbeGateDecision.defaultFullScanInterval
             } ?? true
-            if slowFullScanDue { lastFullScanUptime = uptime }
+            if slowFullScanDue {
+                lastFullScanUptime = uptime
+                // Catches a process that was seatless when it left `.regular` (no seat release
+                // to trigger the event-driven check) — one policy read per seatless entry per 60s.
+                sweepNonRegularZeroSeatEntries()
+            }
         }
         // 候选连同**探测时刻的进程代际**一起带走：后台探测期间 pid 可能被复用，回调必须能认出换人。
         let candidates: [(pid: pid_t, identity: ScanAdmissionDecision.ProcessIdentity)]
@@ -2297,6 +2426,15 @@ final class AppTracker: ObservableObject {
 
     func setObserverActiveForTesting(pid: pid_t, active: Bool) {
         observerActiveOverridesForTesting[pid] = active
+    }
+
+    @discardableResult
+    func evictIfNonRegularForTesting(pid: pid_t) -> NonRegularEvictionDecision.Verdict {
+        evictIfNonRegular(pid: pid)
+    }
+
+    func sweepNonRegularZeroSeatEntriesForTesting() {
+        sweepNonRegularZeroSeatEntries()
     }
 
     func runPeriodicBatchForTesting(

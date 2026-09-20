@@ -191,78 +191,113 @@ final class PanelGeometryTests: XCTestCase {
         XCTAssertEqual(bubble.maxY, screen.topUsableY)
     }
 
-    // MARK: - 尺寸档位
+    // MARK: - 条高（连续）
 
-    func testDockSizeTiersKeepIntegerHeightsAndDerivedWindowHeight() {
-        let expected: [DockSize: CGFloat] = [.small: 46, .medium: 54, .large: 62, .extraLarge: 70]
-        for size in DockSize.allCases {
-            let m = size.metrics
-            XCTAssertEqual(m.panelHeight, expected[size], "\(size) 面板高度")
-            XCTAssertEqual(m.panelHeight.rounded(), m.panelHeight, "档位高度必须是整数，否则圆角和图标落在半像素上")
+    private let sampleHeights: [DockPanelHeight] = [40, 47, 54, 63, 80].map { DockPanelHeight(clamping: $0) }
+
+    func testClampingRoundsAndClampsToTheRange() {
+        XCTAssertEqual(DockPanelHeight(clamping: 39.4).points, 40)
+        XCTAssertEqual(DockPanelHeight(clamping: 40.6).points, 41)
+        XCTAssertEqual(DockPanelHeight(clamping: 80.4).points, 80)
+        XCTAssertEqual(DockPanelHeight(clamping: 100).points, 80)
+        XCTAssertEqual(DockPanelHeight(clamping: 0).points, 40)
+        XCTAssertEqual(DockPanelHeight(clamping: .nan).points, 54)
+        XCTAssertEqual(DockPanelHeight(clamping: .infinity).points, 54)
+        XCTAssertEqual(DockPanelHeight.minimum, 40)
+        XCTAssertEqual(DockPanelHeight.maximum, 80)
+    }
+
+    func testLegacyTierMigrationTable() {
+        // The four raw strings are the frozen contract of the tier releases' UserDefaults key.
+        XCTAssertEqual(DockPanelHeight.migratingLegacyTier(rawValue: "small")?.points, 46)
+        XCTAssertEqual(DockPanelHeight.migratingLegacyTier(rawValue: "medium")?.points, 54)
+        XCTAssertEqual(DockPanelHeight.migratingLegacyTier(rawValue: "large")?.points, 62)
+        XCTAssertEqual(DockPanelHeight.migratingLegacyTier(rawValue: "extraLarge")?.points, 70)
+        XCTAssertNil(DockPanelHeight.migratingLegacyTier(rawValue: "gigantic"))
+    }
+
+    func testEveryHeightKeepsIntegerPointsAndDerivedWindowHeight() {
+        for height in sampleHeights {
+            let m = height.metrics
+            XCTAssertEqual(m.panelHeight, height.points)
+            XCTAssertEqual(m.panelHeight.rounded(), m.panelHeight, "条高必须是整数，否则圆角和图标落在半像素上")
             // 这层关系以前只写在注释里，改高度时最容易漏掉窗口高度。
             XCTAssertEqual(m.windowHeight, m.panelHeight + 2 * m.shadowPadding)
-            XCTAssertEqual(m.shadowPadding, 20, "阴影边距不随档位缩放——阴影 token 是冻结的")
+            XCTAssertEqual(m.shadowPadding, 20, "阴影边距不随条高缩放——阴影 token 是冻结的")
             XCTAssertEqual(m.capsuleWidth, m.panelHeight, "胶囊是正方形，边长跟面板高度")
         }
     }
 
-    /// 中档是四档的基准（`scale == 1`），逐字段锁死。
+    /// 54pt 是基准（`scale == 1`），逐字段锁死。
     ///
     /// **2026-08-16 由 52 改成 54，对齐原生 macOS 26 Dock**（owner 拍板；@2x 截图实测
-    /// 原生条高 108px = 54pt）。此前这里锁的是「逐字节等于 2026-07-30 之前的历史字面值」，
-    /// 那条冻结契约已被这次改判推翻 —— 不要按旧值把它改回去。
-    /// 与之配套的是图标 36→40（`ChipHoverVisual.bareIconSize`）与卡高 52→54
-    /// （`ChipPillMetrics.chipHeight`），三者必须同进同退。
-    func testMediumTierMatchesTheNativeDockBaseline() {
-        XCTAssertEqual(DockSize.medium.scale, 1.0)
-        XCTAssertEqual(DockSize.medium.metrics, PanelLayoutMetrics(
+    /// 原生条高 108px = 54pt）。与之配套的是图标 36→40（`ChipHoverVisual.bareIconSize`）
+    /// 与卡高 52→54（`ChipPillMetrics.chipHeight`），三者必须同进同退。
+    func testNativeHeightMatchesTheNativeDockBaseline() {
+        XCTAssertEqual(DockPanelHeight.native.points, 54)
+        XCTAssertEqual(DockPanelHeight.native.scale, 1.0)
+        XCTAssertEqual(DockPanelHeight.default, DockPanelHeight.native)
+        XCTAssertEqual(DockPanelHeight.native.metrics, PanelLayoutMetrics(
             panelHeight: 54, shadowPadding: 20, windowHeight: 94,
             bottomGap: 8, outerMargin: 12, capsuleWidth: 54, capsuleGap: 8,
             minimumDockWidth: 120, minimumDrawerExtent: 120
         ))
+        XCTAssertEqual(PanelLayoutMetrics.tungstenEdge, DockPanelHeight.native.metrics)
     }
 
     /// 卡片必须撑满条高、上下不留空隙——任务条空白区右键的判定就建立在「没有垂直空隙」上。
-    func testChipHeightFillsTheMediumPanelExactly() {
-        XCTAssertEqual(ChipPillMetrics.chipHeight, DockSize.medium.panelHeight)
+    func testChipHeightFillsTheNativePanelExactly() {
+        XCTAssertEqual(ChipPillMetrics.chipHeight, DockPanelHeight.native.points)
     }
 
-    func testCapsuleGridContentFitsEveryTier() {
-        // 九宫格 3 列：3×icon + 2×spacing + 2×padding 必须塞进胶囊宽度。
-        // 中档 3×9 + 2×4 + 2×6 = 47pt，小档胶囊只有 44pt——不跟着缩就会被裁。
-        for size in DockSize.allCases {
-            let s = size.scale
-            let content = (3 * 9 + 2 * 4 + 2 * 6) * s
-            XCTAssertLessThanOrEqual(content, size.metrics.capsuleWidth, "\(size) 胶囊内容超宽")
+    func testCapsuleGridContentFitsEveryHeight() {
+        // 2 × 2 preview: columns × icon + spacing + 2 × padding must fit the capsule at every height.
+        XCTAssertEqual(DrawerCapsulePreviewMetrics.limit, 4)
+        for height in sampleHeights {
+            let content = DrawerCapsulePreviewMetrics.contentWidth * height.scale
+            XCTAssertLessThanOrEqual(content, height.metrics.capsuleWidth, "\(height.points)pt 胶囊内容超宽")
         }
     }
 
-    func testEveryTierLaysOutBottomAnchoredAndCentered() {
+    func testEveryHeightLaysOutBottomAnchoredAndCentered() {
         let screen = screen(frame: CGRect(x: -1512, y: -400, width: 1512, height: 982))
-        for size in DockSize.allCases {
-            let m = size.metrics
+        for height in sampleHeights {
+            let m = height.metrics
             let dock = PanelGeometry.dockTargetFrame(contentWidth: 620, on: screen, metrics: m)
             let capsule = PanelGeometry.capsuleTargetFrame(forDock: dock, on: screen, metrics: m)
-            // 非零原点屏幕也必须贴物理底边，且面板高度跟着档位走。
-            XCTAssertEqual(dock.minY, screen.frame.minY + m.bottomGap - m.shadowPadding, "\(size) 底边")
-            XCTAssertEqual(dock.height, m.windowHeight, "\(size) 面板高度")
-            XCTAssertEqual(dock.midX, screen.frame.midX, accuracy: 0.5, "\(size) 居中")
+            // 非零原点屏幕也必须贴物理底边，且面板高度跟着条高走。
+            XCTAssertEqual(dock.minY, screen.frame.minY + m.bottomGap - m.shadowPadding, "\(height.points)pt 底边")
+            XCTAssertEqual(dock.height, m.windowHeight, "\(height.points)pt 面板高度")
+            // Bar + drawer capsule are centered as one group, not the bar alone.
+            let groupMinX = dock.minX + m.shadowPadding
+            let groupMaxX = capsule.maxX - m.shadowPadding
+            XCTAssertEqual((groupMinX + groupMaxX) / 2, screen.frame.midX, accuracy: 0.5, "\(height.points)pt 整组居中")
             // 胶囊与任务条垂直居中对齐（两者等高时中心重合）。
-            XCTAssertEqual(capsule.midY, dock.midY, accuracy: 0.5, "\(size) 胶囊垂直对齐")
+            XCTAssertEqual(capsule.midY, dock.midY, accuracy: 0.5, "\(height.points)pt 胶囊垂直对齐")
         }
     }
 
-    func testLiftTargetTracksTierHeight() {
-        // 最大化避让的 taskbarTop = 屏幕底 + bottomGap + panelHeight，换档必须跟着变，
+    func testFullBarKeepsOuterMarginOnBothSidesOfTheGroup() {
+        let screen = screen(frame: CGRect(x: -1512, y: -400, width: 1512, height: 982))
+        for height in sampleHeights {
+            let m = height.metrics
+            let dock = PanelGeometry.dockTargetFrame(contentWidth: 10_000, on: screen, metrics: m)
+            let capsule = PanelGeometry.capsuleTargetFrame(forDock: dock, on: screen, metrics: m)
+            let barVisible = dock.insetBy(dx: m.shadowPadding, dy: m.shadowPadding)
+            let capsuleVisible = capsule.insetBy(dx: m.shadowPadding, dy: m.shadowPadding)
+            XCTAssertEqual(barVisible.minX - screen.frame.minX, m.outerMargin, accuracy: 0.5, "\(height.points)pt 左边距")
+            XCTAssertEqual(screen.frame.maxX - capsuleVisible.maxX, m.outerMargin, accuracy: 0.5, "\(height.points)pt 右边距")
+            XCTAssertEqual(capsuleVisible.minX - barVisible.maxX, m.capsuleGap, accuracy: 0.5, "\(height.points)pt 胶囊间距")
+        }
+    }
+
+    func testLiftTargetTracksBarHeight() {
+        // 最大化避让的 taskbarTop = 屏幕底 + bottomGap + panelHeight，条高一变必须跟着变，
         // 否则被抬起的窗口底边和新任务条对不上。
         let screenMinY: CGFloat = -400
-        var tops: [CGFloat] = []
-        for size in DockSize.allCases {
-            let m = size.metrics
-            tops.append(screenMinY + m.bottomGap + m.panelHeight)
-        }
-        XCTAssertEqual(tops, [-346, -338, -330, -322], "中档 54 起、四档相差 8pt")
-        XCTAssertEqual(Set(tops).count, DockSize.allCases.count, "四档的抬升目标必须两两不同")
+        let tops = [40, 54, 80].map { DockPanelHeight(clamping: $0).metrics }.map { screenMinY + $0.bottomGap + $0.panelHeight }
+        XCTAssertEqual(tops, [-352, -338, -312])
+        XCTAssertEqual(tops, tops.sorted(), "抬升目标随条高单调上升")
     }
 
     private func layout(

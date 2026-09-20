@@ -18,6 +18,7 @@ extension DockStripView {
         // 这时候把悬停清掉、卡开始回落，两者就对不上了（owner 2026-08-19「上下残影」）。
         guard !dragController.hoverFrozen else { return }
         let resolved: String? = {
+            guard !isPanelHeightResizing else { return nil }
             // 手里拎着东西时不判悬停，落地之后也**先按住、等指针真动了再判**。三个理由：
             // ① 拖动途中指针扫过谁就给谁点亮、还弹名字气泡，本来就不对；
             // ② 松手位置必然压在刚落定的那张卡上——载体画的是**非悬停**态，
@@ -60,6 +61,8 @@ extension DockStripView {
             return appBubbleName(bundleID: bid, fallback: bid)
         case let .keptApp(bid):
             return appBubbleName(bundleID: bid, fallback: bid)
+        case .trash:
+            return String(localized: "Trash")
         case .shelf:
             let count = shelfStore.itemPaths.count
             return count > 0
@@ -84,7 +87,7 @@ extension DockStripView {
     ///
     /// 安静档不弹气泡（`hoverStyle.isExpressive`），与改造前的 `showsHover` 门槛一致。
     func bubbleRequest(projection: StripProjection) -> WindowTitleTooltipRequest? {
-        guard hoverStyle.isExpressive,
+        guard !isPanelHeightResizing, hoverStyle.isExpressive,
               let id = hoveredEntryID,
               let frame = stripHoverFrames[id],
               stripRootScreenRect != .zero,
@@ -100,13 +103,9 @@ extension DockStripView {
     /// PreferenceKey，从来不合并进 `chipFrames`）。
     func taskbarMenuZoneClaims(atScreen global: CGPoint) -> Bool {
         guard let point = stripPoint(from: global) else { return false }
-        var frames = Array(chipFrames.values)
-        frames.append(contentsOf: folderChipFrames.values)
-        frames.append(contentsOf: messagingChipFrames.values)
-        if shelfFrame != .zero { frames.append(shelfFrame) }
         return StripContextMenuZone.claims(
             point: point,
-            chipFrames: frames,
+            chipFrames: allStripChipFrames(),
             bounds: CGRect(origin: .zero, size: stripRootScreenRect.size),
             minimumGapWidth: StripContextMenuZone.defaultMinimumGapWidth * dockScale
         )
@@ -151,5 +150,26 @@ extension DockStripView {
         default:
             break
         }
+    }
+
+    /// Drag-to-resize grip (and its ▲▼ glyph): the right-click zones kept clear of the chips.
+    func resizeGripZoneClaims(atScreen global: CGPoint) -> Bool {
+        guard let point = stripPoint(from: global) else { return false }
+        return StripContextMenuZone.gripClaims(
+            point: point,
+            chipFrames: allStripChipFrames(),
+            bounds: CGRect(origin: .zero, size: stripRootScreenRect.size),
+            minimumGapWidth: StripContextMenuZone.defaultMinimumGapWidth * dockScale,
+            chipClearance: StripContextMenuZone.defaultGripChipClearance * dockScale
+        )
+    }
+
+    private func allStripChipFrames() -> [CGRect] {
+        var frames = Array(chipFrames.values)
+        frames.append(contentsOf: folderChipFrames.values)
+        frames.append(contentsOf: messagingChipFrames.values)
+        if shelfFrame != .zero { frames.append(shelfFrame) }
+        if settingsStore.showTrash, trashFrame != .zero { frames.append(trashFrame) }
+        return frames
     }
 }

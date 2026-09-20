@@ -26,7 +26,7 @@ enum StripHoverResolution {
     ///
     /// 取 2pt 的理由：卡间距本身就是 `ChipPillMetrics.chipSpacing`（2pt），两侧各扩 2pt
     /// 会在缝隙正中重叠，于是缝里没有死区、边界正好落在**两卡的中点**，且与来向无关。
-    /// 而分区分隔线那道 9pt 宽的缝，两侧各扩 2 之后中间仍空着 5pt，所以悬停分隔线依然
+    /// 而分区分隔线那道 13pt 宽的缝，两侧各扩 2 之后中间仍空着 9pt，所以悬停分隔线依然
     /// 什么都不弹（原生也是这样）；任务条两端的留白同理。
     static let defaultGapBridge: CGFloat = 2
 

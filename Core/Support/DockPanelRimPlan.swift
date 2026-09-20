@@ -10,8 +10,9 @@ import CoreGraphics
 /// 现在的规则：**玻璃亮边任何时候都画，高亮是叠上去的，不是换掉它。**
 enum DockPanelRimPlan {
     /// 玻璃镜面亮边（`DockGlassRim`）画不画。只看走不走玻璃路径，与高亮无关。
-    static func glassRimVisible(usesLiquidGlass: Bool) -> Bool {
-        usesLiquidGlass
+    /// The system variant plate draws its own rim; a hand-drawn one on top would double it.
+    static func glassRimVisible(usesLiquidGlass: Bool, usesSystemVariant: Bool) -> Bool {
+        usesLiquidGlass && !usesSystemVariant
     }
 
     /// 主题描边的线宽。

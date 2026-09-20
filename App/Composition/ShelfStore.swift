@@ -34,9 +34,11 @@ final class ShelfStore: ObservableObject {
     }
 
     /// 剔除已不存在的路径（打开中转弹窗时调）。返回是否有变化。
+    /// Only a definitely missing path is dropped: an unreadable one (e.g. a Desktop file while the
+    /// Desktop permission is not granted) is still the user's file.
     @discardableResult
     func prune() -> Bool {
-        let kept = Self.pruned(itemPaths) { FileManager.default.fileExists(atPath: $0) }
+        let kept = Self.pruned(itemPaths) { FileReachability.of(path: $0) != .missing }
         guard kept != itemPaths else { return false }
         itemPaths = kept
         persist()

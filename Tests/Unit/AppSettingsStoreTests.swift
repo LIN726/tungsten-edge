@@ -3,6 +3,20 @@ import XCTest
 
 @MainActor
 final class AppSettingsStoreTests: XCTestCase {
+    func testTrashDefaultsIgnoreLegacyKeyAndPersistIndependently() {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: "com.tungsten.edge.trash.visible")
+        let store = AppSettingsStore(defaults: defaults)
+        XCTAssertTrue(store.showTrash)
+        store.setShowTrash(false)
+        XCTAssertTrue(store.showShelf)
+        XCTAssertFalse(AppSettingsStore(defaults: defaults).showTrash)
+        store.setShowShelf(false)
+        store.setShowTrash(true)
+        let reloaded = AppSettingsStore(defaults: defaults)
+        XCTAssertTrue(reloaded.showTrash)
+        XCTAssertFalse(reloaded.showShelf)
+    }
     /// 全新安装：钨极自己那条**默认常驻**（owner 2026-09-01），系统 Dock 的镜像种子仍是 1.0。
     func testFreshInstallDefaultsToAlwaysVisibleForTheTaskbar() {
         let defaults = makeDefaults()
@@ -110,25 +124,56 @@ final class AppSettingsStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testDockSizeDefaultsToMediumAndPersists() {
+    func testDockPanelHeightDefaultsToNativeAndPersists() {
         let defaults = makeDefaults()
-        XCTAssertEqual(AppSettingsStore(defaults: defaults).dockSize, .medium)
+        XCTAssertEqual(AppSettingsStore(defaults: defaults).dockPanelHeight, .native)
+        XCTAssertEqual(defaults.double(forKey: "com.tungsten.edge.dockPanelHeight"), 54, "清洗后的值启动即写回")
 
         let store = AppSettingsStore(defaults: defaults)
-        store.setDockSize(.extraLarge)
-        XCTAssertEqual(AppSettingsStore(defaults: defaults).dockSize, .extraLarge, "档位要跨重启保持")
+        store.setDockPanelHeight(DockPanelHeight(clamping: 70))
+        XCTAssertEqual(AppSettingsStore(defaults: defaults).dockPanelHeight.points, 70, "条高要跨重启保持")
+        XCTAssertEqual(defaults.object(forKey: "com.tungsten.edge.dockPanelHeight") as? Double, 70)
     }
 
     @MainActor
-    func testDockSizeRewritesCorruptStoredValueToMedium() {
+    func testDockPanelHeightRewritesCorruptStoredValueToNative() {
+        let defaults = makeDefaults()
+        defaults.set("huge", forKey: "com.tungsten.edge.dockPanelHeight")
+        XCTAssertEqual(AppSettingsStore(defaults: defaults).dockPanelHeight, .native)
+        // 必须**立刻重写**，否则每次启动都要重走一遍回退。
+        XCTAssertEqual(defaults.double(forKey: "com.tungsten.edge.dockPanelHeight"), 54)
+
+        defaults.set(Double.nan, forKey: "com.tungsten.edge.dockPanelHeight")
+        XCTAssertEqual(AppSettingsStore(defaults: defaults).dockPanelHeight, .native, "NaN 也要回退")
+
+        defaults.set(999, forKey: "com.tungsten.edge.dockPanelHeight")
+        XCTAssertEqual(AppSettingsStore(defaults: defaults).dockPanelHeight.points, DockPanelHeight.maximum, "越界夹到范围")
+        XCTAssertEqual(defaults.double(forKey: "com.tungsten.edge.dockPanelHeight"), DockPanelHeight.maximum)
+    }
+
+    @MainActor
+    func testLegacyDockSizeMigratesOnceAndIsNeverDeleted() {
+        let defaults = makeDefaults()
+        defaults.set("extraLarge", forKey: "com.tungsten.edge.dockSize")
+        XCTAssertEqual(AppSettingsStore(defaults: defaults).dockPanelHeight.points, 70)
+        XCTAssertEqual(defaults.double(forKey: "com.tungsten.edge.dockPanelHeight"), 70, "迁移结果写进新键")
+        XCTAssertEqual(defaults.string(forKey: "com.tungsten.edge.dockSize"), "extraLarge", "旧键只读不删，回滚还读得回")
+    }
+
+    @MainActor
+    func testNewHeightKeyWinsOverLegacyTier() {
+        let defaults = makeDefaults()
+        defaults.set("small", forKey: "com.tungsten.edge.dockSize")
+        defaults.set(63, forKey: "com.tungsten.edge.dockPanelHeight")
+        XCTAssertEqual(AppSettingsStore(defaults: defaults).dockPanelHeight.points, 63)
+    }
+
+    @MainActor
+    func testUnknownLegacyTierFallsBackToNative() {
         let defaults = makeDefaults()
         defaults.set("gigantic", forKey: "com.tungsten.edge.dockSize")
-        XCTAssertEqual(AppSettingsStore(defaults: defaults).dockSize, .medium)
-        // 必须**立刻重写**，否则每次启动都要重走一遍回退，存值和 UI 勾选也一直对不上。
-        XCTAssertEqual(defaults.string(forKey: "com.tungsten.edge.dockSize"), DockSize.medium.rawValue)
-
-        defaults.set(42, forKey: "com.tungsten.edge.dockSize")
-        XCTAssertEqual(AppSettingsStore(defaults: defaults).dockSize, .medium, "类型不对也要回退")
+        XCTAssertEqual(AppSettingsStore(defaults: defaults).dockPanelHeight, .native)
+        XCTAssertEqual(defaults.string(forKey: "com.tungsten.edge.dockSize"), "gigantic", "旧键不动")
     }
 
     @MainActor
@@ -166,7 +211,7 @@ final class AppSettingsStoreTests: XCTestCase {
     func testWindowLiftSeedOnlyAppliesWhenTheUserNeverTouchedIt() {
         let fresh = makeDefaults()
         let store = AppSettingsStore(defaults: fresh)
-        store.seedWindowLiftEnabledForFreshInstall()
+        store.seedWindowLiftEnabledForFreshInstall(lineage: .pristine)
         XCTAssertTrue(store.windowLiftEnabled, "全新安装播种为开")
         XCTAssertTrue(AppSettingsStore(defaults: fresh).windowLiftEnabled, "要落盘")
 
@@ -175,12 +220,12 @@ final class AppSettingsStoreTests: XCTestCase {
         let existing = AppSettingsStore(defaults: chosen)
         existing.setWindowLiftEnabled(true)
         existing.setWindowLiftEnabled(false)
-        existing.seedWindowLiftEnabledForFreshInstall()
+        existing.seedWindowLiftEnabledForFreshInstall(lineage: .pristine)
         XCTAssertFalse(existing.windowLiftEnabled, "键已存在 = 用户拨过，尊重")
 
         // 幂等：播种后再调一次不改变任何东西。
         store.setWindowLiftEnabled(false)
-        store.seedWindowLiftEnabledForFreshInstall()
+        store.seedWindowLiftEnabledForFreshInstall(lineage: .pristine)
         XCTAssertFalse(store.windowLiftEnabled)
     }
 
@@ -214,19 +259,19 @@ final class AppSettingsStoreTests: XCTestCase {
     func testHoverStyleDoesNotDisturbOtherSettings() {
         let defaults = makeDefaults()
         let store = AppSettingsStore(defaults: defaults)
-        store.setDockSize(.large)
+        store.setDockPanelHeight(DockPanelHeight(clamping: 62))
         store.setShowShelf(false)
 
         store.setHoverStyle(.quiet)
 
         let reloaded = AppSettingsStore(defaults: defaults)
         XCTAssertEqual(reloaded.hoverStyle, .quiet)
-        XCTAssertEqual(reloaded.dockSize, .large, "悬停档位与尺寸档位是两把独立的钥匙")
+        XCTAssertEqual(reloaded.dockPanelHeight.points, 62, "悬停档位与条高是两把独立的钥匙")
         XCTAssertFalse(reloaded.showShelf)
     }
 
     func testHoverStyleRawValuesAreStableAcrossReleases() {
-        // 同 dockSize：raw value 进了 UserDefaults，改名等于把所有老用户悄悄重置回标准档。
+        // 同 dockSize 当年：raw value 进了 UserDefaults，改名等于把所有老用户悄悄重置回标准档。
         XCTAssertEqual(HoverStyle.allCases.map(\.rawValue), ["standard", "quiet"])
         // 全新安装默认不弹应用名气泡（owner 2026-09-01，此前是 .standard）。
         XCTAssertEqual(HoverStyle.default, .quiet)
@@ -250,12 +295,10 @@ final class AppSettingsStoreTests: XCTestCase {
         XCTAssertFalse(HoverStyle.quiet.showsQuietHoverFeedback(isHovering: false))
     }
 
-    @MainActor
-    func testDockSizeRawValuesAreStableAcrossReleases() {
-        // raw value 进了 UserDefaults，改名等于把所有老用户的档位悄悄重置成中档。
-        XCTAssertEqual(DockSize.allCases.map(\.rawValue), ["small", "medium", "large", "extraLarge"])
-        XCTAssertEqual(DockSize.allCases.map(\.title),
-                       [String(localized: "Small"), String(localized: "Medium"), String(localized: "Large"), String(localized: "Extra Large")])
+    func testLegacyDockSizeRawValuesStayReadable() {
+        // 四个 raw 字符串是四档时代 UserDefaults 的冻结契约：迁移表必须一直认得它们。
+        XCTAssertEqual(["small", "medium", "large", "extraLarge"].compactMap { DockPanelHeight.migratingLegacyTier(rawValue: $0)?.points },
+                       [46, 54, 62, 70])
     }
 
     @MainActor
@@ -1360,6 +1403,70 @@ final class AppSettingsStoreTests: XCTestCase {
             defaults.dictionary(forKey: "com.tungsten.edge.taskbarScreen.pinned"),
             "remembered 惯例：切回跟随鼠标保留上次选的屏"
         )
+    }
+
+    func testTaskbarPerDisplaySeedArmsOnlyForPristineInstallAndOnlyOnce() {
+        let defaults = makeDefaults()
+        let store = AppSettingsStore(defaults: defaults)
+
+        store.armTaskbarPerDisplaySeedForFreshInstall(lineage: .priorUse)
+        XCTAssertNil(defaults.object(forKey: "com.tungsten.edge.taskbarScreen.perDisplaySeedPending"))
+
+        store.armTaskbarPerDisplaySeedForFreshInstall(lineage: .pristine)
+        XCTAssertTrue(store.taskbarPerDisplaySeedPending)
+        store.consumeTaskbarPerDisplaySeedIfPresent()
+        store.armTaskbarPerDisplaySeedForFreshInstall(lineage: .pristine)
+        XCTAssertFalse(store.taskbarPerDisplaySeedPending, "consumed marker must never re-arm")
+    }
+
+    func testAppSettingsStoreInitNeverArmsTaskbarPerDisplaySeed() {
+        let defaults = makeDefaults()
+
+        _ = AppSettingsStore(defaults: defaults)
+
+        XCTAssertNil(defaults.object(forKey: "com.tungsten.edge.taskbarScreen.perDisplaySeedPending"))
+    }
+
+    func testExplicitUnchangedPlacementChoiceConsumesTaskbarPerDisplaySeed() {
+        let defaults = makeDefaults()
+        let store = AppSettingsStore(defaults: defaults)
+        store.armTaskbarPerDisplaySeedForFreshInstall(lineage: .pristine)
+
+        store.setTaskbarScreenPlacement(.followMouse)
+
+        XCTAssertFalse(store.taskbarPerDisplaySeedPending)
+        XCTAssertNil(defaults.object(forKey: "com.tungsten.edge.taskbarScreen.mode"))
+    }
+
+    func testTaskbarPerDisplaySeedWritesModeAndConsumesMarker() {
+        let defaults = makeDefaults()
+        let store = AppSettingsStore(defaults: defaults)
+        store.armTaskbarPerDisplaySeedForFreshInstall(lineage: .pristine)
+
+        store.applyTaskbarPerDisplaySeed()
+
+        XCTAssertEqual(store.taskbarScreenPlacement, .allScreensPerDisplay)
+        XCTAssertEqual(defaults.string(forKey: "com.tungsten.edge.taskbarScreen.mode"), "allScreensPerDisplay")
+        XCTAssertFalse(store.taskbarPerDisplaySeedPending)
+    }
+
+    func testTaskbarPlacementChoiceDoesNotCreateSeedMarkerForUpgrader() {
+        let defaults = makeDefaults()
+        let store = AppSettingsStore(defaults: defaults)
+
+        store.setTaskbarScreenPlacement(.allScreens)
+
+        XCTAssertNil(defaults.object(forKey: "com.tungsten.edge.taskbarScreen.perDisplaySeedPending"))
+    }
+
+    func testPriorUseLineageCannotSeedWindowLift() {
+        let defaults = makeDefaults()
+        let store = AppSettingsStore(defaults: defaults)
+
+        store.seedWindowLiftEnabledForFreshInstall(lineage: .priorUse)
+
+        XCTAssertFalse(store.windowLiftEnabled)
+        XCTAssertNil(defaults.object(forKey: "com.tungsten.edge.windowLiftEnabled"))
     }
 
     private func makeDefaults() -> UserDefaults {

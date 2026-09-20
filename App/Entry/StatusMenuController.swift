@@ -54,7 +54,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let edgeSectionItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     // 中转站 / 悬停显示应用名 / 最大化避让 / 任务条大小 2026-09-01 从设置窗口搬回菜单
     // （owner 拍板，反转 2026-08-03 的分工）：它们是调外观时随手要切的，为此开一次窗不值。
-    // 四项并进钨极组（不另起帽子），与「钨极 Dock 栏显示在 ▸」同组。
+    // 四项并进钨极组（不另起帽子），与「单/多屏模式 ▸」同组。
     // 登录项 / 检查更新 / 版本号仍按 2026-08-24 的去重结果：只在设置窗口。
 
     /// 分组标题，恒不可点（title 在 configureMenu 里落）。
@@ -66,21 +66,18 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let nativeDockApplyItem = NSMenuItem()
     private let nativeDockApplyRow = NativeDockApplyRowView()
     private let openNativeDockSettingsItem = NSMenuItem(title: String(localized: "Dock Settings…"), action: #selector(openNativeDockSettings), keyEquivalent: "")
-    /// 「钨极 Dock 栏显示在 ▸」：二级子菜单，「跟随鼠标」+ 每块在场屏一项（owner 2026-08-26 把这个
+    /// 「单/多屏模式 ▸」：二级子菜单，单屏 / 多屏两组（owner 2026-08-26 把这个
     /// 设置从设置窗口搬到菜单，不两边都放）。做成子菜单是为了**主菜单只多一行、高度恒定**——
     /// 屏幕数变化不会改主菜单高度，任务条那条按左上角定位的路径就不会漂。
     /// 整行的显隐只允许在 `prepareMenuForPresentation` 翻转（菜单开着时增删行的老规矩）。
-    private let taskbarScreenItem = NSMenuItem(title: String(localized: "Show taskbar on"), action: nil, keyEquivalent: "")
+    private let taskbarScreenItem = NSMenuItem(title: String(localized: "Single/Multi-Display Mode"), action: nil, keyEquivalent: "")
     /// **刻意不设 delegate**：`menuWillOpen` / `menuDidClose` 不区分 menu 参数，
     /// 子菜单一开一关会被当成主菜单开关，提前解除边缘自动隐藏抑制。内容改为在父菜单
     /// 显示前（`prepareMenuForPresentation`）建好。
     private let taskbarScreenMenu = NSMenu()
-    /// 「Dock 栏大小 ▸」：四档静态子菜单，`configureMenu` 建一次，之后只翻勾选。
-    /// 做成子菜单而不是四行平铺，同「显示在 ▸」的理由：主菜单只多一行。
-    private let dockSizeItem = NSMenuItem(title: String(localized: "Taskbar Size"), action: nil, keyEquivalent: "")
-    private let dockSizeMenu = NSMenu()
-    /// 下面三条是普通勾选项，**恒在**（菜单开着时不许增删行），勾选状态由 refreshCheckmarks 落。
+    /// 下面四条是普通勾选项，**恒在**（菜单开着时不许增删行），勾选状态由 refreshCheckmarks 落。
     private let showShelfItem = NSMenuItem(title: String(localized: "Show Shelf"), action: #selector(toggleShowShelf), keyEquivalent: "")
+    private let showTrashItem = NSMenuItem(title: String(localized: "Show Trash"), action: #selector(toggleShowTrash), keyEquivalent: "")
     private let hoverNameItem = NSMenuItem(title: String(localized: "Show app name on hover"), action: #selector(toggleHoverName), keyEquivalent: "")
     private let windowLiftItem = NSMenuItem(title: String(localized: "Keep maximized windows above the taskbar"), action: #selector(toggleWindowLift), keyEquivalent: "")
     private let nativeDockSliderView: PreferenceSliderMenuItemView
@@ -243,22 +240,12 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         taskbarScreenItem.isHidden = true
         menu.addItem(taskbarScreenItem)
 
-        // 大小子菜单是静态的四档，建一次即可；勾选交给 refreshCheckmarks。
-        for size in DockSize.allCases {
-            let sizeItem = NSMenuItem(title: size.title, action: #selector(selectDockSize(_:)), keyEquivalent: "")
-            sizeItem.target = self
-            // rawValue 走 representedObject。**不能用 `ClosureMenuItem`**：
-            // `AppMenuFragments.swift` 只编进 app target，本文件在测试 target 也编译。
-            sizeItem.representedObject = size.rawValue
-            dockSizeMenu.addItem(sizeItem)
-        }
-        dockSizeItem.submenu = dockSizeMenu
-        menu.addItem(dockSizeItem)
-
-        // 三个开关。设置窗口里它们各带一行灰色说明，菜单里没有副标题的位置，
+        // 四个开关。设置窗口里它们各带一行灰色说明，菜单里没有副标题的位置，
         // 说明随搬家一并删除（owner 2026-09-01 拍板接受这个代价）。
         showShelfItem.target = self
         menu.addItem(showShelfItem)
+        showTrashItem.target = self
+        menu.addItem(showTrashItem)
         hoverNameItem.target = self
         menu.addItem(hoverNameItem)
         windowLiftItem.target = self
@@ -365,7 +352,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         rebuildTaskbarScreenMenu()
     }
 
-    /// 重建「钨极 Dock 栏显示在 ▸」。**只从 `prepareMenuForPresentation` 调**——它是唯一
+    /// 重建「单/多屏模式 ▸」。**只从 `prepareMenuForPresentation` 调**——它是唯一
     /// 允许改行显隐的路径（菜单在屏时增删行会让任务条锚点漂移）。
     private func rebuildTaskbarScreenMenu() {
         let presentation = TaskbarScreenMenuPresentation(
@@ -395,6 +382,16 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                 // `AppMenuFragments.swift` 只编进 app target，本文件在测试 target 也编译。
                 menuItem.representedObject = item.selection.token
                 menuItem.state = item.isChecked ? .on : .off
+                // Options sit one step in from their group header.
+                menuItem.indentationLevel = 1
+                // Same line, not `NSMenuItem.subtitle`: a subtitle makes the row taller than its siblings.
+                if let hint = item.hint {
+                    menuItem.attributedTitle = Self.titleWithHint(
+                        item.title,
+                        hint,
+                        alignedAfter: TaskbarScreenMenuPresentation.pinnedTitlePrefix
+                    )
+                }
                 taskbarScreenMenu.addItem(menuItem)
             }
         }
@@ -476,12 +473,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     /// 所以菜单开着时调用也安全（不受 `allowsLayoutChange` 约束）。
     private func refreshTaskbarPreferenceStates() {
         showShelfItem.state = store.showShelf ? .on : .off
+        showTrashItem.state = store.showTrash ? .on : .off
         hoverNameItem.state = store.hoverStyle.isExpressive ? .on : .off
         windowLiftItem.state = store.windowLiftEnabled ? .on : .off
-        let current = store.dockSize.rawValue
-        for item in dockSizeMenu.items {
-            item.state = (item.representedObject as? String) == current ? .on : .off
-        }
     }
 
     private func refreshLaunchAtLoginState(allowsLayoutChange: Bool) {
@@ -540,6 +534,34 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                 .foregroundColor: NSColor.secondaryLabelColor
             ]
         )
+    }
+
+    /// Title followed by grey hint text on the same line. The hint starts where the screen name
+    /// starts on the rows below (`prefix` = 「固定在 」): the gap after the title is one space
+    /// kerned out by however much narrower the title is than the prefix. A title wider than the
+    /// prefix (English) just gets the plain space.
+    /// Fonts and colours must be explicit, same as `sectionTitle` — an attributed title without
+    /// them falls back to black at the default size and vanishes in dark menus.
+    private static func titleWithHint(_ title: String, _ hint: String, alignedAfter prefix: String) -> NSAttributedString {
+        let titleAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.menuFont(ofSize: 0),
+            .foregroundColor: NSColor.labelColor
+        ]
+        // Measured without trailing whitespace on either side, so both widths mean the same thing.
+        let prefixWidth = (prefix.trimmingCharacters(in: .whitespaces) as NSString).size(withAttributes: titleAttributes).width
+        let titleWidth = (title as NSString).size(withAttributes: titleAttributes).width
+        var gapAttributes = titleAttributes
+        gapAttributes[.kern] = max(0, prefixWidth - titleWidth)
+        let text = NSMutableAttributedString(string: title, attributes: titleAttributes)
+        text.append(NSAttributedString(string: " ", attributes: gapAttributes))
+        text.append(NSAttributedString(
+            string: hint,
+            attributes: [
+                .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
+                .foregroundColor: NSColor.tertiaryLabelColor
+            ]
+        ))
+        return text
     }
 
     /// 「安装 X.Y.Z…」+ 右上角一个红点。
@@ -645,14 +667,13 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
     }
 
-    @objc private func selectDockSize(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let size = DockSize(rawValue: raw) else { return }
-        store.setDockSize(size)
+    @objc private func toggleShowShelf() {
+        store.setShowShelf(!store.showShelf)
         refreshCheckmarks()
     }
 
-    @objc private func toggleShowShelf() {
-        store.setShowShelf(!store.showShelf)
+    @objc private func toggleShowTrash() {
+        store.setShowTrash(!store.showTrash)
         refreshCheckmarks()
     }
 

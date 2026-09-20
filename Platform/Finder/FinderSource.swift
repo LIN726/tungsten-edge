@@ -71,7 +71,8 @@ final class FinderSource {
                 title: window.title,
                 role: window.role,
                 subrole: window.subrole,
-                bounds: window.bounds
+                bounds: window.bounds,
+                isMinimized: window.isMinimized
             ) else {
                 return nil
             }

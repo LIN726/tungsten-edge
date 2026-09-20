@@ -145,6 +145,9 @@ extension DockStripView {
     /// `handleExternalApplicationDrop`，`.keepApp` 也不会走到这里来。
     func handleExternalDrop(_ target: StripDropRouting.Target, urls: [URL]) {
         switch target {
+        case .trash:
+            let files = urls.filter { !StripFileDropDelegate.DragPasteboardInspector.isApplication($0) }
+            trashStore.trash(files)
         case .stash:
             shelfStore.stash(paths: urls.map(\.path))
         case .moveInto(let path):

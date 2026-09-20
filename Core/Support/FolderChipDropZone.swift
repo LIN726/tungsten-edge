@@ -15,8 +15,10 @@ enum FolderChipDropZone: Equatable {
     /// 落在任务条可见范围外：移除固定。
     case outsideStrip
 
-    static func classify(point: CGPoint, stripVisibleRect: CGRect, folderZoneMaxX: CGFloat) -> FolderChipDropZone {
+    static func classify(point: CGPoint, stripVisibleRect: CGRect, folderZoneMaxX: CGFloat,
+                         trashMinX: CGFloat?) -> FolderChipDropZone {
         guard stripVisibleRect.contains(point) else { return .outsideStrip }
+        if let trashMinX, point.x >= trashMinX { return .folderZone }
         return point.x <= folderZoneMaxX ? .folderZone : .liveZone
     }
 }
@@ -28,6 +30,7 @@ enum FolderChipDropZone: Equatable {
 struct FolderChipDropGeometry: Equatable {
     let stripScreenRect: CGRect
     let folderZoneMaxX: CGFloat
+    let trashMinX: CGFloat?
 
     func classify(screenPoint: CGPoint) -> FolderChipDropZone {
         guard stripScreenRect != .zero else { return .outsideStrip }
@@ -38,7 +41,8 @@ struct FolderChipDropGeometry: Equatable {
         return FolderChipDropZone.classify(
             point: localPoint,
             stripVisibleRect: CGRect(origin: .zero, size: stripScreenRect.size),
-            folderZoneMaxX: folderZoneMaxX
+            folderZoneMaxX: folderZoneMaxX,
+            trashMinX: trashMinX
         )
     }
 }

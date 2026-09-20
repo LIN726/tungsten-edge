@@ -174,6 +174,43 @@ extension PanelCoordinator {
 
     /// 共享的弹窗呈现路径（文件夹/中转同一面板同一套动画与监视器）。内容构建交给 makeHosting
     /// （入参 = 网格可用高度上限）；调用方负责先做好各自的预载（首帧完整,AGENTS 护栏）。
+    func toggleTrashPopup(anchorVisibleRect: CGRect) {
+        if folderPopupWantsOpen, openPopupContent == .trash {
+            closeFolderPopup()
+        } else {
+            openTrashPopup(anchorVisibleRect: anchorVisibleRect)
+        }
+    }
+
+    /// Opens on whatever listing the store still holds and refreshes from Finder behind it: a loaded
+    /// Finder answers the listing in ~1s, far too long to hold the first frame for.
+    private func openTrashPopup(anchorVisibleRect: CGRect) {
+        let store = TrashStateStore.shared
+        presentPopup(content: .trash, anchorVisibleRect: anchorVisibleRect) { [weak self, runtime] maxContentHeight in
+            NSHostingView(rootView: TrashGridPopupView(
+                trashStore: store,
+                maxContentHeight: maxContentHeight,
+                usesLiquidGlass: usesLiquidGlass,
+                onClosePopup: { [weak self] in self?.closeFolderPopup() },
+                onContentResize: { [weak self] in self?.repositionFolderPopup(animated: true) },
+                onOpenInFinder: { [weak self] in
+                    self?.closeFolderPopup()
+                    TrashStateStore.openTrashWindow(runtime: runtime, store: store)
+                }
+            ))
+        }
+        // After presenting: the popup that just went away cleared the listing (see
+        // `clearTrashListingIfShowing`), and the view's own `onDisappear` would fire too late —
+        // the old hosting view dies only when this one replaces it — and cancel this load.
+        store.loadItems()
+    }
+
+    /// The Trash listing lives exactly as long as the Trash popup shows; every way the popup
+    /// stops showing Trash content passes through here.
+    private func clearTrashListingIfShowing() {
+        if openPopupContent == .trash { TrashStateStore.shared.clearListing() }
+    }
+
     private func presentPopup(content: PopupContent, anchorVisibleRect: CGRect, makeHosting: (CGFloat) -> NSView) {
         guard let mainPanel = dockPanel else { return }
         onAccessoryWillOpen?(self, .popup)
@@ -209,6 +246,7 @@ extension PanelCoordinator {
         hosting.layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.0).cgColor
 
         popupAnchorVisibleRect = anchorVisibleRect
+        if content != .trash { clearTrashListingIfShowing() }
         openPopupContent = content
         folderPopupWantsOpen = true
         setAutoHideInhibitor(.folderPopupOpen, active: true)
@@ -382,6 +420,7 @@ extension PanelCoordinator {
         guard folderPopupWantsOpen else { return }
         lastTabToggleTime = CACurrentMediaTime()
         stopPopupWatchdog()
+        clearTrashListingIfShowing()
         folderPopupWantsOpen = false
         openPopupContent = nil
         setAutoHideInhibitor(.folderPopupOpen, active: false)

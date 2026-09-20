@@ -77,6 +77,12 @@ enum EdgeAutoHideInhibitor: Hashable {
     /// 钨极菜单（状态栏图标或任务条右键弹出的那一个）正开着。
     /// 不挡的话，自动隐藏档位下空闲计时照跑，任务条会从菜单底下缩掉。
     case taskbarMenuOpen
+    /// A height drag is in progress on this unit's bar. Past the top clamp the pointer leaves
+    /// the panel rect while the button is still down; without this the idle-hide timer
+    /// hides the bar out from under the drag. Set only on the unit being dragged: an
+    /// inhibitor also clears an existing auto-hide, so putting it on every unit would wake
+    /// bars that other screens had hidden.
+    case interactiveResize
 }
 
 struct PanelVisibilityState: Equatable {

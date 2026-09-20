@@ -55,7 +55,7 @@ enum ChipPressAnimation {
 extension View {
     /// 只做视觉：按压缩放 + 两条边各自的曲线。
     ///
-    /// 和手势**分成两个修饰器**是刻意的：抽屉胶囊的按压只作用在里面的九宫格上、外框保持静止
+    /// 和手势**分成两个修饰器**是刻意的：抽屉胶囊的按压只作用在里面的四宫格上、外框保持静止
     /// （owner 2026-06-21 定），所以缩放和手势必须能挂在不同层级。
     func chipPressScale(_ isPressed: Bool) -> some View {
         scaleEffect(isPressed ? ChipPressDecision.pressedScale : 1.0)

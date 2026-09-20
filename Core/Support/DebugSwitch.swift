@@ -43,6 +43,14 @@ enum DebugSwitch: String, CaseIterable, Sendable {
     case dragLanding = "DOCK_DRAG_LANDING"
     /// macOS 26 Liquid Glass 底板；=0 退回毛玻璃
     case liquidGlass = "DOCK_LIQUID_GLASS"
+    /// Fixed-scale background refraction on the taskbar and drawer capsule; =0 disables it.
+    case liquidGlassDockRefraction = "DOCK_LIQUID_GLASS_DOCK_REFRACTION"
+    /// Accepted diagonal system rim lighting; =0 restores the system's vertical light directions.
+    case liquidGlassDiagonalHighlight = "DOCK_LIQUID_GLASS_DIAGONAL_HIGHLIGHT"
+    /// Accepted stronger key/fill lights; =0 preserves the system's native light strength.
+    case liquidGlassHighlightBoost = "DOCK_LIQUID_GLASS_HIGHLIGHT_BOOST"
+    /// Balanced clearance around the strip's end icons; =0 restores the wider end insets.
+    case stripBalancedInsets = "DOCK_STRIP_BALANCED_INSETS"
     /// 桌面 / 全屏空间切换意图监听（session 事件 tap）
     case spaceIntent = "DOCK_SPACE_INTENT"
     /// 原生全屏进入前的预测让位
@@ -65,8 +73,12 @@ enum DebugSwitch: String, CaseIterable, Sendable {
     case hoverMonitorLean = "DOCK_HOVER_MONITOR_LEAN"
     /// 任务条整条一块的指针轮询
     case stripHoverPoll = "DOCK_STRIP_HOVER_POLL"
+    /// 拖动调高时藏掉系统光标、自绘 ▲▼ 面板；=0 不藏也不画
+    case resizeCursor = "DOCK_RESIZE_CURSOR"
     /// 按下 chip 的即时按压反馈
     case chipPressDown = "DOCK_CHIP_PRESS_DOWN"
+    /// 卡片标签对反复横跳的窗口标题的跟随抑制（WindowTitleSettle）
+    case titleSettle = "DOCK_TITLE_SETTLE"
 
     // MARK: 默认关的追踪 / 实验（=1 开）
     /// 多屏归属写入日志（category display-trace）
@@ -85,6 +97,8 @@ enum DebugSwitch: String, CaseIterable, Sendable {
     case stripWheelTrace = "DOCK_STRIP_WHEEL_TRACE"
     /// chip 动画 / 气泡追踪
     case chipAnimTrace = "DOCK_CHIP_ANIM_TRACE"
+    /// 只开标签宽度 / 面板宽度的逐帧探针与 relayout 行（不开 hover trace 的 8ms 卡顿采样与指针轮询）
+    case labelProbe = "DOCK_LABEL_PROBE"
     /// 空间切换意图追踪
     case spaceIntentTrace = "DOCK_SPACE_INTENT_TRACE"
     /// 滚轮反转事件打印
@@ -101,6 +115,8 @@ enum DebugSwitch: String, CaseIterable, Sendable {
     case seedAxTimeoutMs = "DOCK_SEED_AX_TIMEOUT_MS"
     /// 拖动落定飞行时长毫秒
     case dragFlightMs = "DOCK_DRAG_FLIGHT_MS"
+    /// 标签变长变短的布局曲线："ms,c1x,c1y,c2x,c2y"（两侧共用，见 `LabelWidthAnimation`）
+    case labelAnim = "DOCK_LABEL_ANIM"
     /// 窗口清单诊断日志：1 / 0 覆盖 UserDefaults InventoryLog
     case inventoryLog = "DOCK_INVENTORY_LOG"
     /// 实验：三块任务条面板的 NSWindow.Level 原始值
@@ -141,27 +157,31 @@ enum DebugSwitch: String, CaseIterable, Sendable {
     case liquidGlassWindowBlur = "DOCK_LIQUID_GLASS_WINDOW_BLUR"
     /// 玻璃调参：内容内缩
     case liquidGlassContentInset = "DOCK_LIQUID_GLASS_CONTENT_INSET"
+    /// Private `NSGlassEffectView` variant for the plate (default 3 = the Dock's own material); `off` = SwiftUI plate
+    case liquidGlassSystemVariant = "DOCK_LIQUID_GLASS_SYSTEM_VARIANT"
 
     var kind: Kind {
         switch self {
         case .eventAxAsync, .reconcileSkip, .scanGate, .frontmostCache,
              .cgSnapshotReuse, .axElementCache, .skylightFocus, .fastWindowHandle,
              .badgeTargeted, .badgePause, .minimizeSettleGate, .handoffActiveGrace,
-             .handoffActivePrediction, .staleActiveGuard, .dragLanding, .liquidGlass,
+             .handoffActivePrediction, .staleActiveGuard, .dragLanding, .liquidGlass, .liquidGlassDockRefraction,
+             .liquidGlassDiagonalHighlight, .liquidGlassHighlightBoost, .stripBalancedInsets,
              .spaceIntent, .fullscreenIntent, .fullscreenSlsVerdict, .spaceMembershipRepair,
              .overlaySpace, .scrollReverser, .windowLift, .windowLiftAnim,
-             .menuHoverSuspend, .hoverMonitorLean, .stripHoverPoll, .chipPressDown:
+             .menuHoverSuspend, .hoverMonitorLean, .stripHoverPoll, .resizeCursor, .chipPressDown, .titleSettle:
             return .killSwitch
         case .displayTrace, .launchTrace, .chipProbe, .clickTrace,
-             .hoverTrace, .edgehoverTrace, .stripWheelTrace, .chipAnimTrace,
+             .hoverTrace, .edgehoverTrace, .stripWheelTrace, .chipAnimTrace, .labelProbe,
              .spaceIntentTrace, .scrollReverserTrace, .windowLiftTrace, .minimizeAppFallback:
             return .trace
-        case .reconcileAxTimeoutMs, .seedAxTimeoutMs, .dragFlightMs, .inventoryLog,
+        case .reconcileAxTimeoutMs, .seedAxTimeoutMs, .dragFlightMs, .labelAnim, .inventoryLog,
              .panelLevel, .panelMaterial, .panelSaturation, .panelThickness,
              .chipPillFill, .labelInactive, .shelfTile, .liquidGlassClearTint,
              .liquidGlassWhiteOverlay, .liquidGlassDimming, .liquidGlassBorder, .liquidGlassBorderEdge,
              .liquidGlassBorderCut, .liquidGlassBorderSpread, .liquidGlassBorderWidth, .liquidGlassBorderInner,
-             .liquidGlassBackgroundOpacity, .liquidGlassWindowBlur, .liquidGlassContentInset:
+             .liquidGlassBackgroundOpacity, .liquidGlassWindowBlur, .liquidGlassContentInset,
+             .liquidGlassSystemVariant:
             return .value
         }
     }

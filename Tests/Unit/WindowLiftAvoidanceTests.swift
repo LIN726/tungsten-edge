@@ -1058,8 +1058,9 @@ final class WindowLiftAvoidanceTests: XCTestCase {
         )
     }
 
-    func testLockedStandoffDecaysToSlowRetryAndHealsAfterStableLift() throws {
+    func testLockedStandoffStopsRetryingAndResetsOnlyOnExternalFrame() throws {
         let target = try XCTUnwrap(geometry.adjustedFrame(for: visibleFrame))
+        let manualFrame = CGRect(x: 160, y: 120, width: 920, height: 720)
 
         func failedSession(
             from state: WindowLiftAvoidance.SessionState,
@@ -1087,46 +1088,43 @@ final class WindowLiftAvoidanceTests: XCTestCase {
         state = failedSession(from: state, generation: 3, detectedAt: 1005.0, failedAt: 1005.5)
         // rounds 已达上限，abandonedAt 1005.5。
 
-        // 上限后 appReassertWindow~standoffLockBackoff(3s) 之间：不重开。
-        let held = WindowLiftAvoidance.reduce(
+        // 到顶后无论过多久都不再重开（owner 2026-09-18：旧行为是 3s 慢频重开，造成平铺工具下
+        // 窗口底边周期性跳）。此处 14.5s 后仍维持 abandoned、无 write。
+        let stillLocked = WindowLiftAvoidance.reduce(
             state: state,
             event: .maximizedDetected(
                 generation: 4,
-                at: 1008.0,
+                at: 1020.0,
                 nativeFrame: visibleFrame,
                 targetFrame: target
             )
         )
-        XCTAssertEqual(held.action, .none)
+        XCTAssertEqual(stillLocked.action, .none)
+        guard case let .abandoned(lockedSession) = stillLocked.state else {
+            return XCTFail("Expected the standoff cap to keep the session locked, no slow retry")
+        }
+        XCTAssertEqual(lockedSession.standoffRounds, WindowLiftAvoidance.maximumStandoffRounds)
 
-        // 超过 standoffLockBackoff(3s)：慢频重开，rounds 停在上限，不永久锁死。
-        let reopened = WindowLiftAvoidance.reduce(
-            state: held.state,
+        // external 帧（窗口不再铺满）是唯一出口：清会话，下一次铺满从零开始。
+        let cleared = WindowLiftAvoidance.reduce(
+            state: stillLocked.state,
+            event: .nonMaximizedObserved(generation: 5, at: 1021.0, frame: manualFrame)
+        )
+        XCTAssertEqual(cleared, .init(state: .idle, action: .clear))
+        let fresh = WindowLiftAvoidance.reduce(
+            state: cleared.state,
             event: .maximizedDetected(
-                generation: 5,
-                at: 1012.0,
+                generation: 6,
+                at: 1022.0,
                 nativeFrame: visibleFrame,
                 targetFrame: target
             )
         )
-        guard case let .writing(attempt) = reopened.state else {
-            return XCTFail("Expected slow-cadence reopen after lock backoff")
+        guard case let .writing(freshAttempt) = fresh.state else {
+            return XCTFail("Expected a fresh session after the external reset")
         }
-        XCTAssertEqual(attempt.standoffRounds, WindowLiftAvoidance.maximumStandoffRounds)
-
-        // 写成功且安稳超过对峙窗口 → 痊愈，rounds 归零。
-        let lifted = WindowLiftAvoidance.reduce(
-            state: reopened.state,
-            event: .writeFinished(generation: 5, at: 1012.6, actualFrame: target, reliftCount: 0)
-        ).state
-        let healed = WindowLiftAvoidance.reduce(
-            state: lifted,
-            event: .nonMaximizedObserved(generation: 6, at: 1014.5, frame: target)
-        )
-        guard case let .lifted(session) = healed.state else {
-            return XCTFail("Expected lifted session to persist through target observation")
-        }
-        XCTAssertEqual(session.standoffRounds, 0)
+        XCTAssertEqual(freshAttempt.standoffRounds, 0)
+        XCTAssertEqual(freshAttempt.reliftCount, 0)
     }
 
     func testUserPacedZoomToggleBetweenLiftedAndMaximizedAlwaysRelifts() throws {

@@ -142,7 +142,8 @@ struct FinderWindowContentsReader {
                         title: snapshot.title,
                         role: snapshot.role,
                         subrole: snapshot.subrole,
-                        bounds: snapshot.bounds
+                        bounds: snapshot.bounds,
+                        isMinimized: snapshot.isMinimized
                       ) else {
                     return nil
                 }
@@ -203,24 +204,7 @@ struct FinderWindowContentsReader {
     }
 
     private static func finderAutomationPermissionStatus(askUserIfNeeded: Bool) -> OSStatus {
-        var target = AEAddressDesc()
-        let bundleID = FinderWindowRules.bundleIdentifier
-        let status = bundleID.withCString { pointer -> OSStatus in
-            OSStatus(AECreateDesc(
-                typeApplicationBundleID,
-                pointer,
-                bundleID.utf8.count,
-                &target
-            ))
-        }
-        guard status == noErr else { return status }
-        defer { AEDisposeDesc(&target) }
-        return AEDeterminePermissionToAutomateTarget(
-            &target,
-            typeWildCard,
-            typeWildCard,
-            askUserIfNeeded
-        )
+        FinderAutomationPermission.status(askUserIfNeeded: askUserIfNeeded)
     }
 
     private static func elapsedMS(since start: CFAbsoluteTime) -> Int {

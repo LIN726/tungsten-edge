@@ -1,4 +1,37 @@
 import AppKit
+import SwiftUI
+
+/// Shared by the two hosting roots of one taskbar; a resize must not inherit chip animations.
+@MainActor
+final class PanelHeightResizePresentation: ObservableObject {
+    @Published var isActive = false
+}
+
+private struct PanelHeightResizingKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var isPanelHeightResizing: Bool {
+        get { self[PanelHeightResizingKey.self] }
+        set { self[PanelHeightResizingKey.self] = newValue }
+    }
+}
+
+struct PanelHeightResizeModifier: ViewModifier {
+    @ObservedObject var presentation: PanelHeightResizePresentation
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.isPanelHeightResizing, presentation.isActive)
+            .transaction { transaction in
+                if presentation.isActive {
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                }
+            }
+    }
+}
 
 /// Hosts manually sized panel content without letting the hosted view become the
 /// window's content view and participate in automatic window sizing.
@@ -20,6 +53,13 @@ final class ManualPanelHost {
     }
 
     var fittingSize: NSSize { contentView.fittingSize }
+
+    /// ObservedObject invalidation alone does not refresh NSHostingView's fitting size in the
+    /// publishing call stack. Lay out explicitly before measuring and after resizing its panel.
+    func layoutContent() {
+        contentView.needsLayout = true
+        contentView.layoutSubtreeIfNeeded()
+    }
 }
 
 /// 七扇悬浮面板共用的窗口行为集合。**必须只有这一处字面量**：

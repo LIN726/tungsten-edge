@@ -18,6 +18,9 @@ import QuartzCore
 /// 落盘在 `~/Library/Logs/com.caye.macosdockcc.v2/hover-trace.jsonl`。
 enum HoverTrace {
     static let isEnabled = DebugSwitch.hoverTrace.isEnabled(in: ProcessInfo.processInfo.environment)
+    /// 宽度探针（`width` / `relayout` / `action`）单独可开：`DOCK_LABEL_PROBE=1` 不带 hover trace 的
+    /// 8ms 卡顿采样和指针轮询——那两样会让主循环一直醒着，量动画时本身就是干扰。
+    static let widthProbesEnabled = isEnabled || DebugSwitch.labelProbe.isEnabled(in: ProcessInfo.processInfo.environment)
 
     /// chip 报告悬停进入 / 离开。
     static func hover(chipID: String, entered: Bool) {
@@ -86,12 +89,21 @@ enum HoverTrace {
     ///
     /// **`changed:false` 且 `animated:true` 就是纯浪费**——宽度没变还要跑一遍窗口尺寸动画，
     /// 而那动画的每一帧都要重画玻璃底板和描边。这是本轮头号嫌疑。
-    static func relayout(measureMs: CFTimeInterval, width: CGFloat, changed: Bool, animated: Bool) {
-        guard isEnabled else { return }
+    static func relayout(measureMs: CFTimeInterval, width: CGFloat, changed: Bool, animated: Bool,
+                         timing: String = "standard") {
+        guard widthProbesEnabled else { return }
         Writer.shared.append(
             "{\"t\":\(stamp()),\"kind\":\"relayout\",\"measureMs\":\(round(measureMs * 10000) / 10)," +
-            "\"width\":\(round(width * 10) / 10),\"changed\":\(changed),\"animated\":\(animated)}"
+            "\"width\":\(round(width * 10) / 10),\"changed\":\(changed),\"animated\":\(animated)," +
+            "\"timing\":\(quote(timing))}"
         )
+    }
+
+    /// 逐帧宽度探针（只在 trace 开着时有输出）：`who` = "panel"（AppKit 窗口 frame 的实时宽）或
+    /// "content"（SwiftUI 条内容的实时布局宽）。两条曲线对着看，就知道内容与底板是不是同曲线同步走。
+    static func width(_ who: String, _ width: CGFloat) {
+        guard widthProbesEnabled else { return }
+        Writer.shared.append("{\"t\":\(stamp()),\"kind\":\"width\",\"who\":\(quote(who)),\"w\":\(round(width * 10) / 10)}")
     }
 
     /// 面板 frame 全等 → 整组动画被跳过。**这条是上面那条浪费真的被堵住的证据**，
@@ -103,7 +115,7 @@ enum HoverTrace {
 
     /// 用户动作的时间窗标记。没有它，日志里一堆卡顿不知道该算在谁头上。
     static func action(_ kind: String, phase: String) {
-        guard isEnabled else { return }
+        guard widthProbesEnabled else { return }
         Writer.shared.append("{\"t\":\(stamp()),\"kind\":\"action\",\"what\":\(quote(kind)),\"phase\":\(quote(phase))}")
     }
 

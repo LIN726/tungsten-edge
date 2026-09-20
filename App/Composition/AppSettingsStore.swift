@@ -6,7 +6,7 @@ import Foundation
 /// - `quiet`：鼠标划过任务条时**完全静止**——不缩放、不移动、不冒名字、胶囊底色不提亮。
 ///
 /// 两个不受本档位影响的地方（owner 2026-08-02 定）：**抽屉面板里的图标**照旧，
-/// **抽屉入口胶囊**里的九宫格照旧轻微放大——胶囊属于抽屉。
+/// **抽屉入口胶囊**里的四宫格照旧轻微放大——胶囊属于抽屉。
 /// 「标题太长时弹出全文浮层」在两档下都保留：它是看全被截断标题的唯一途径，且不移动任何卡片。
 ///
 /// **对外只是一个勾选项**：菜单上叫「鼠标悬停显示应用名」，**勾选 = `.standard`**，
@@ -78,8 +78,9 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var launchAtLogin: Bool
     /// 中转格是否显示在固定文件夹区头位。关掉后它不再渲染，暂存的文件不受影响。
     @Published private(set) var showShelf: Bool
+    @Published private(set) var showTrash: Bool
     /// 任务条尺寸档位。面板几何与条内所有 chip 尺寸都由它派生。
-    @Published private(set) var dockSize: DockSize
+    @Published private(set) var dockPanelHeight: DockPanelHeight
     /// 悬停效果档位。只影响条内 chip 的悬停视觉，静息布局逐像素不变（因此无需 relayout）。
     @Published private(set) var hoverStyle: HoverStyle
     /// 最大化窗口避让任务条（菜单「最大化窗口避开任务条」）。
@@ -116,6 +117,12 @@ final class AppSettingsStore: ObservableObject {
 
     var nativeDockAutoHideEnabled: Bool { nativeDockAutoHideDelay != Self.neverHideDelay }
     var edgeAutoHideEnabled: Bool { edgeAutoHideDelay != Self.neverHideDelay }
+    var taskbarPerDisplaySeedPending: Bool {
+        defaults.bool(forKey: Keys.taskbarScreenPerDisplaySeedPending)
+    }
+    var hasStoredTaskbarScreenChoice: Bool {
+        defaults.object(forKey: Keys.taskbarScreenMode) != nil
+    }
 
     private let defaults: UserDefaults
 
@@ -136,6 +143,7 @@ final class AppSettingsStore: ObservableObject {
         defaults.register(defaults: [
             Keys.launchAtLogin: false,
             Keys.showShelf: true,
+            Keys.showTrash: true,
             Keys.fullscreenIntentEnabled: true,
             Keys.nativeDockAutoHideDelay: Self.defaultNativeDockAutoHideDelay,
             // 首次安装 = 常驻；remembered 的种子仍是有限档，见常量注释。
@@ -144,6 +152,7 @@ final class AppSettingsStore: ObservableObject {
 
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
         showShelf = defaults.bool(forKey: Keys.showShelf)
+        showTrash = defaults.bool(forKey: Keys.showTrash)
         // 有意**不**进上面的 register：缺键即 false = 老用户维持关。
         // 全新安装那一次由 `seedWindowLiftEnabledForFreshInstall()` 显式写成 true——
         // register 一个 true 会把**所有**从没碰过这个开关的老用户一并打开，而这个功能
@@ -173,7 +182,7 @@ final class AppSettingsStore: ObservableObject {
             if let pinnedSelection {
                 taskbarScreenPlacement = .pinned(pinnedSelection)
             } else {
-                // pinned 但选择缺失/坏 → 回退并立刻重写 mode 键（对齐 dockSize 的坏值即重写惯例）。
+                // pinned 但选择缺失/坏 → 回退并立刻重写 mode 键（对齐 dockPanelHeight 的坏值即重写惯例）。
                 taskbarScreenPlacement = .followMouse
                 defaults.set(TaskbarScreenMode.followMouse.rawValue, forKey: Keys.taskbarScreenMode)
             }
@@ -182,9 +191,11 @@ final class AppSettingsStore: ObservableObject {
             // 降级不毁掉用户在新版本里做的选择。
             taskbarScreenPlacement = .followMouse
         }
-        // 坏值（手改过、旧版本残留、类型不对）一律回退中档并**立刻重写**，
-        // 否则每次启动都要重新走一遍回退，且 UI 上勾选的档位和存的值对不上。
-        dockSize = DockSize(rawValue: defaults.string(forKey: Keys.dockSize) ?? "") ?? .default
+        // Bar height: the new key wins; a user upgrading from the four-tier releases carries only
+        // the legacy `dockSize` string, which is mapped once (the legacy key is read here and
+        // never written or removed, so a rollback still finds it). Corrupt values fall back to
+        // the native height and are rewritten immediately, like every other key here.
+        dockPanelHeight = Self.storedDockPanelHeight(defaults: defaults)
         hoverStyle = HoverStyle(rawValue: defaults.string(forKey: Keys.hoverStyle) ?? "") ?? .default
         let nativeDelay = Self.sanitizedStoredDelay(
             defaults.object(forKey: Keys.nativeDockAutoHideDelay),
@@ -212,7 +223,7 @@ final class AppSettingsStore: ObservableObject {
         } else {
             lastEnabledEdgeAutoHideDelay = edgeDelay
         }
-        defaults.set(dockSize.rawValue, forKey: Keys.dockSize)
+        defaults.set(Double(dockPanelHeight.points), forKey: Keys.dockPanelHeight)
         defaults.set(hoverStyle.rawValue, forKey: Keys.hoverStyle)
         defaults.set(nativeDelay, forKey: Keys.nativeDockAutoHideDelay)
         defaults.set(lastEnabledNativeDockAutoHideDelay, forKey: Keys.nativeDockAutoHideLastEnabledDelay)
@@ -220,10 +231,12 @@ final class AppSettingsStore: ObservableObject {
         defaults.set(lastEnabledEdgeAutoHideDelay, forKey: Keys.edgeAutoHideLastEnabledDelay)
     }
 
-    func setDockSize(_ value: DockSize) {
-        guard dockSize != value else { return }
-        dockSize = value
-        defaults.set(value.rawValue, forKey: Keys.dockSize)
+    /// Called on every accepted tick of a height drag (the drag decision already dedupes to
+    /// whole points, so a tick that changes nothing never reaches the publisher or the disk).
+    func setDockPanelHeight(_ value: DockPanelHeight) {
+        guard dockPanelHeight != value else { return }
+        dockPanelHeight = value
+        defaults.set(Double(value.points), forKey: Keys.dockPanelHeight)
     }
 
     /// 只应由 `SettingsCoordinator.applyEdgeToggleShortcut` 在**注册成功后**调用（见属性注释）。
@@ -251,6 +264,7 @@ final class AppSettingsStore: ObservableObject {
     }
 
     func setTaskbarScreenPlacement(_ value: TaskbarScreenPlacement) {
+        consumeTaskbarPerDisplaySeedIfPresent()
         guard taskbarScreenPlacement != value else { return }
         taskbarScreenPlacement = value
         defaults.set(value.mode.rawValue, forKey: Keys.taskbarScreenMode)
@@ -262,6 +276,25 @@ final class AppSettingsStore: ObservableObject {
         }
         // 切回 followMouse 时**保留** pinned 字典不删（remembered 惯例，
         // 同 lastEnabledEdgeAutoHideDelay 的精神：再切回固定档时还记得上次选的屏）。
+    }
+
+    /// Only a genuinely fresh install may arm this; the store's own init never creates the key.
+    func armTaskbarPerDisplaySeedForFreshInstall(lineage: InstallLineage) {
+        guard lineage == .pristine,
+              defaults.object(forKey: Keys.taskbarScreenPerDisplaySeedPending) == nil
+        else { return }
+        defaults.set(true, forKey: Keys.taskbarScreenPerDisplaySeedPending)
+    }
+
+    func applyTaskbarPerDisplaySeed() {
+        setTaskbarScreenPlacement(.allScreensPerDisplay)
+    }
+
+    func consumeTaskbarPerDisplaySeedIfPresent() {
+        guard defaults.object(forKey: Keys.taskbarScreenPerDisplaySeedPending) != nil,
+              defaults.bool(forKey: Keys.taskbarScreenPerDisplaySeedPending)
+        else { return }
+        defaults.set(false, forKey: Keys.taskbarScreenPerDisplaySeedPending)
     }
 
     private static func storedPinnedScreenSelection(_ dict: [String: Any]?) -> PinnedScreenSelection? {
@@ -297,15 +330,30 @@ final class AppSettingsStore: ObservableObject {
         defaults.set(value, forKey: Keys.showShelf)
     }
 
-    /// 全新安装把「最大化窗口避开 Dock 栏」播种为开（owner 2026-09-01）。
+    func setShowTrash(_ value: Bool) {
+        guard showTrash != value else { return }
+        showTrash = value
+        defaults.set(value, forKey: Keys.showTrash)
+    }
+
+    /// Seeds "lift maximized windows clear of the taskbar" to on for a fresh install (owner 2026-09-01).
     ///
-    /// **只允许 `AppDelegate` 在判定为全新安装时调一次**：判据是 `InstallationRecord`
-    /// 的首装键在本次启动**之前**是否存在——老用户机器上它早就有值，只有全新安装那一次是空的，
-    /// 所以不需要再新建一个播种标记键（也就没有新的数据边界）。⚠️ 调用点必须排在
-    /// `recordFirstLaunchIfNeeded()` **之前**取那个判据，写完再问就永远是「老用户」。
+    /// **Only `AppDelegate` may call this, once.** The verdict is `InstallLineage`: a snapshot of the
+    /// persistent domain taken at the very start of the process, where an empty domain means a fresh
+    /// install. ⚠️ What is load-bearing is *where* that snapshot is taken — `AppDelegate.installLineage`
+    /// must be that type's **first stored property**, because this store and its siblings write defaults
+    /// inside their own inits, so a snapshot taken one step later is guaranteed to be non-empty. This has
+    /// **nothing** to do with the ordering against `recordFirstLaunchIfNeeded()`; that was the old,
+    /// now-retired verdict.
     ///
-    /// 键已存在 = 用户自己拨过（哪怕拨成关），一律尊重，不覆盖。
-    func seedWindowLiftEnabledForFreshInstall() {
+    /// Getting the order wrong fails in the safe direction: a non-empty domain reads as `.priorUse` and
+    /// nothing is seeded, so the feature goes silently dead for fresh installs rather than flipping an
+    /// existing user. That is why there is **no assertion** here — 71 tests construct this type directly,
+    /// and a process-level assert would abort the whole test run on the first one.
+    ///
+    /// An existing key means the user chose, even if they chose off: always respected, never overwritten.
+    func seedWindowLiftEnabledForFreshInstall(lineage: InstallLineage) {
+        guard lineage == .pristine else { return }
         guard defaults.object(forKey: Keys.windowLiftEnabled) == nil else { return }
         setWindowLiftEnabled(true)
     }
@@ -433,6 +481,17 @@ final class AppSettingsStore: ObservableObject {
         DefaultsValueParsing.finiteNumericValue(value)
     }
 
+    private static func storedDockPanelHeight(defaults: UserDefaults) -> DockPanelHeight {
+        if let stored = storedNumericValue(defaults.object(forKey: Keys.dockPanelHeight)) {
+            return DockPanelHeight(clamping: CGFloat(stored))
+        }
+        if let legacy = defaults.string(forKey: Keys.dockSize),
+           let migrated = DockPanelHeight.migratingLegacyTier(rawValue: legacy) {
+            return migrated
+        }
+        return .default
+    }
+
     private static func migrateLegacyEnabledKey(defaults: UserDefaults, enabledKey: String, delayKey: String) {
         if let storedEnabled = defaults.object(forKey: enabledKey) as? Bool, storedEnabled == false {
             defaults.set(neverHideDelay, forKey: delayKey)
@@ -444,6 +503,11 @@ final class AppSettingsStore: ObservableObject {
 private enum Keys {
     static let launchAtLogin = "com.tungsten.edge.launchAtLogin"
     static let showShelf = "com.tungsten.edge.showShelf"
+    // Never read the retired com.tungsten.edge.trash.visible key.
+    static let showTrash = "com.tungsten.edge.showTrash"
+    /// Continuous bar height in points (since the drag-to-resize release).
+    static let dockPanelHeight = "com.tungsten.edge.dockPanelHeight"
+    /// Legacy four-tier raw string. **Read once for migration, never written or removed.**
     static let dockSize = "com.tungsten.edge.dockSize"
     static let hoverStyle = "com.tungsten.edge.hoverStyle"
         // `com.tungsten.edge.appearanceMode` 已随深色模式一起删除（owner 2026-08-16）。
@@ -459,6 +523,9 @@ private enum Keys {
     static let taskbarScreenMode = "com.tungsten.edge.taskbarScreen.mode"
     /// 固定屏身份（字典：uuid / name）。切回 followMouse 时保留不删。
     static let taskbarScreenPinned = "com.tungsten.edge.taskbarScreen.pinned"
+    /// A fresh install waiting to first see multiple displays. Missing key = existing user,
+    /// false = already consumed.
+    static let taskbarScreenPerDisplaySeedPending = "com.tungsten.edge.taskbarScreen.perDisplaySeedPending"
     /// ⚠️ 这个键名进了用户磁盘。改名 = 所有已订阅的人重新看到订阅区块。
     static let hasSubscribed = "com.tungsten.edge.hasSubscribed"
     /// ⚠️ 同上：改名 = 所有老用户下次启动被欢迎引导再拦一次。

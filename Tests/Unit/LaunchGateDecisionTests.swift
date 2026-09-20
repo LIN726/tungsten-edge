@@ -36,6 +36,43 @@ final class LaunchGateDecisionTests: XCTestCase {
         )
     }
 
+    func testRunningAccessoryProcessNeedsNoSessionOnceFinishedLaunching() {
+        XCTAssertTrue(
+            LaunchGateDecision.runningProcessNeedsNoSession(
+                activationPolicy: .accessory, isFinishedLaunching: true, bundleDeclaresNoWindow: false
+            )
+        )
+        XCTAssertFalse(
+            LaunchGateDecision.runningProcessNeedsNoSession(
+                activationPolicy: .accessory, isFinishedLaunching: false, bundleDeclaresNoWindow: false
+            )
+        )
+    }
+
+    func testRunningProhibitedProcessNeedsNoSessionOnlyWithNoWindowDeclaration() {
+        XCTAssertTrue(
+            LaunchGateDecision.runningProcessNeedsNoSession(
+                activationPolicy: .prohibited, isFinishedLaunching: true, bundleDeclaresNoWindow: true
+            )
+        )
+        XCTAssertFalse(
+            LaunchGateDecision.runningProcessNeedsNoSession(
+                activationPolicy: .prohibited, isFinishedLaunching: true, bundleDeclaresNoWindow: false
+            )
+        )
+    }
+
+    func testRunningRegularOrUnknownProcessStillGetsASession() {
+        for policy in [LaunchGateDecision.ActivationPolicy.regular, .unknown] {
+            XCTAssertFalse(
+                LaunchGateDecision.runningProcessNeedsNoSession(
+                    activationPolicy: policy, isFinishedLaunching: true, bundleDeclaresNoWindow: true
+                ),
+                "\(policy)"
+            )
+        }
+    }
+
     func testOpenFailureWinsOverEveryOtherReleaseReason() {
         XCTAssertEqual(
             verdict(

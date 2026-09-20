@@ -22,7 +22,13 @@ extension DockStripView {
     func makeProjection() -> StripProjection {
         // This is the only snapshot-to-strip conversion in one body evaluation. Everything below,
         // including drag callbacks captured by that body, consumes the same immutable projection.
-        let snapshotItems = StripItem.items(from: runtime.snapshot)
+        // The Trash chip stands in for Finder's Trash window, so that window gets no card of its own.
+        let stripSnapshot = settingsStore.showTrash
+            ? TrashWindowAbsorption.removing(
+                TrashWindowAbsorption.absorbedWindowIDs(in: runtime.snapshot, trashTitles: TrashWindowLookup.liveTitles),
+                from: runtime.snapshot)
+            : runtime.snapshot
+        let snapshotItems = StripItem.items(from: stripSnapshot)
         let snapshotBundleIDs = Set(snapshotItems.compactMap(\.bundleIdentifier))
         let hiddenBundleIDs = Set(snapshotItems.compactMap { item in
             item.status == "hidden" ? item.bundleIdentifier : nil
@@ -173,7 +179,7 @@ extension DockStripView {
         // 只显示本屏的窗口，公共段各屏不同，按全集算会把某块屏上仅剩的一张卡剥掉唯一的区分信息。
         // 也**必须在「拖出即合拢」的剔除之前**——拖走一张卡会让剩下的卡重算公共段，标签当场变长，
         // 拖到一半文字跳动。
-        let labelTitleByChipID = Self.labelTitles(for: renderedLive)
+        let labelTitleByChipID = Self.labelTitles(for: renderedLive, heldTitles: runtime.heldLabelTitlesByChipID)
         // 让位空档（从访达拖应用进条的悬停预览）。**注入点必须在这里**：顺序层
         // （`stripOrderStore.reconciled`）和多屏过滤都已经跑完，所以空档进不了 `liveOrderIDs`
         // 和 `appKeys`——顺序层一旦记住这个幽灵 id，就会在它消失后按 5s 缺席锚点继续为它留位。
@@ -199,14 +205,15 @@ extension DockStripView {
             if p.source == .folder { return StripEntry.pinnedFolder(path: p.id).id }
             return Self.stripEntryID(for: p)
         }()
-        var zones = [messaging, folderEntries, liveWithGhost]
+        var zones = [messaging, folderEntries, liveWithGhost, settingsStore.showTrash ? [.trash] : []]
             .map { zone in zone.filter { $0.id != collapsedEntryID } }
             .filter { !$0.isEmpty }
         var entries: [StripEntry] = []
         if !zones.isEmpty {
             entries = zones.removeFirst()
             for (index, zone) in zones.enumerated() {
-                entries.append(.divider(id: "zone-divider-\(index)"))
+                let dividerID = zone.first?.id == "trash" ? "zone-divider-trash" : "zone-divider-\(index)"
+                entries.append(.divider(id: dividerID))
                 entries += zone
             }
         }
@@ -283,11 +290,13 @@ extension DockStripView {
     ///
     /// 两步都要留着：④ 下一条 bar 上可能只剩某应用的一张卡（`showsTitle` 仍为 true、照样显示
     /// 标题），没有同伴可比对公共段，这时只有应用名那一步能生效。
-    private static func labelTitles(for entries: [StripEntry]) -> [String: String] {
+    /// `heldTitles`：标签跟随抑制（`WindowTitleSettle`）冻结中的卡 → 该显示的标题，只在这里替换，
+    /// 气泡（`fullTitle`）与菜单仍用 `item.title`。
+    private static func labelTitles(for entries: [StripEntry], heldTitles: [String: String]) -> [String: String] {
         var itemsByApp: [String: [(id: String, title: String)]] = [:]
         for case let .window(item) in entries {
             let appName = item.bundleIdentifier.map(AppDisplayNameResolver.displayName(for:)) ?? item.appID
-            let resolved = WindowDisplayTitle.resolve(rawTitle: item.title, fallbackName: appName)
+            let resolved = WindowDisplayTitle.resolve(rawTitle: heldTitles[item.id] ?? item.title, fallbackName: appName)
             let withoutApp = WindowDisplayTitle.trimmingAppNameSuffix(resolved, appName: appName)
             itemsByApp[item.bundleIdentifier ?? item.appID, default: []].append((item.id, withoutApp))
         }

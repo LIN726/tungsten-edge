@@ -6,8 +6,11 @@ final class DockPanelRimPlanTests: XCTestCase {
 
     /// 高亮**不得**再拿掉玻璃亮边——高亮是叠上去的。
     func testGlassRimSurvivesHighlight() {
-        XCTAssertTrue(DockPanelRimPlan.glassRimVisible(usesLiquidGlass: true))
-        XCTAssertFalse(DockPanelRimPlan.glassRimVisible(usesLiquidGlass: false))
+        XCTAssertTrue(DockPanelRimPlan.glassRimVisible(usesLiquidGlass: true, usesSystemVariant: false))
+        XCTAssertFalse(DockPanelRimPlan.glassRimVisible(usesLiquidGlass: false, usesSystemVariant: false))
+        XCTAssertFalse(DockPanelRimPlan.glassRimVisible(usesLiquidGlass: true, usesSystemVariant: true),
+                       "the Dock material draws its own rim")
+        XCTAssertFalse(DockPanelRimPlan.glassRimVisible(usesLiquidGlass: false, usesSystemVariant: true))
     }
 
     /// 玻璃路径：平时那圈边归 `DockGlassRim`，主题描边宽度必须是 0

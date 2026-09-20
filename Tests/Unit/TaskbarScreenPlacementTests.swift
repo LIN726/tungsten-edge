@@ -152,11 +152,42 @@ final class TaskbarScreenPlacementTests: XCTestCase {
             connectedScreens: screens
         )
         XCTAssertEqual(presentation.items.count, 6)
-        // 未连接的固定屏项跟在在场屏之后、仍在「只在一块屏上」这一组里。
+        // The disconnected pinned row follows the present screens, still inside the 单屏模式 group.
         XCTAssertEqual(presentation.items[3].selection, .screen(uuid: "Z"))
         XCTAssertEqual(presentation.items.filter(\.isChecked).map(\.selection), [.screen(uuid: "Z")])
         // 文案随语言变，只锁住那块屏的名字被带进了标题。
         XCTAssertTrue(presentation.items[3].title.contains("Dell U2720Q") == true)
+    }
+
+    /// Screen rows read "Pinned to <name>" (固定在 <name>); the disconnected row wraps the "(disconnected)" name the same way.
+    func testScreenRowsCarryThePinnedPrefix() {
+        let presentation = TaskbarScreenMenuPresentation(
+            placement: .pinned(PinnedScreenSelection(uuid: "Z", name: "Dell U2720Q")),
+            connectedScreens: screens
+        )
+        let pinnedFormat = String(localized: "Pinned to %@")
+        XCTAssertEqual(presentation.items[1].title, String(format: pinnedFormat, "内建显示器"))
+        XCTAssertEqual(presentation.items[2].title, String(format: pinnedFormat, "LG HDR 4K"))
+        XCTAssertEqual(
+            presentation.items[3].title,
+            String(format: pinnedFormat, String(format: String(localized: "%@ (disconnected)"), "Dell U2720Q"))
+        )
+    }
+
+    /// Only 跟随栏 carries the grey hint; its short name does not say the bar waits for a bottom-edge dwell.
+    func testOnlyFollowMouseHasHint() {
+        let presentation = TaskbarScreenMenuPresentation(placement: .followMouse, connectedScreens: screens)
+        XCTAssertEqual(presentation.items[0].hint, String(localized: "Hover a screen's bottom edge to switch"))
+        XCTAssertEqual(presentation.items.dropFirst().compactMap(\.hint), [])
+    }
+
+    /// The hint aligns after this prefix, so it must really be what the 固定在 rows start with.
+    func testPinnedTitlePrefixIsTheStartOfEveryScreenRow() {
+        let presentation = TaskbarScreenMenuPresentation(placement: .followMouse, connectedScreens: screens)
+        let prefix = TaskbarScreenMenuPresentation.pinnedTitlePrefix
+        XCTAssertFalse(prefix.isEmpty)
+        XCTAssertEqual(presentation.items[1].title, prefix + "内建显示器")
+        XCTAssertEqual(presentation.items[2].title, prefix + "LG HDR 4K")
     }
 
     // MARK: - ③④ 所有屏幕档（2026-09-02）
@@ -186,7 +217,7 @@ final class TaskbarScreenPlacementTests: XCTestCase {
         XCTAssertEqual(selected.items.filter(\.isChecked).map(\.selection), [.allScreensPerDisplay])
     }
 
-    /// 两组 + 灰色组标题（owner 2026-09-02）：第一组是跟随鼠标 / 各屏 /（未连接固定屏），第二组是两档「每块屏各一条」。
+    /// Two groups with dimmed headers: 单屏模式 (hover-to-switch / each screen / a disconnected pinned row), then 多屏模式 (③④).
     func testRowsSplitIntoTwoTitledGroups() {
         typealias Row = TaskbarScreenMenuPresentation.Row
         let presentation = TaskbarScreenMenuPresentation(

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 中转弹窗：暂存文件的网格。与文件夹弹窗共用 `FolderGridCell` / `FolderPopupStyle`，
 /// 但**无下钻、无「在访达中打开」尾格、无目录监视**——数据源是 `ShelfStore` 的路径列表
@@ -67,14 +68,22 @@ struct ShelfGridPopupView: View {
                     .foregroundStyle(theme.popupSecondaryText.color)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
+            } else if entries.contains(where: { !$0.isAccessible }) {
+                // Kept, not pruned: the file exists but its folder's privacy permission is missing.
+                Text("Some items can’t be accessed. Allow Tungsten Edge to access their folder in your Mac’s privacy settings.")
+                    .font(.system(size: Style.labelSize))
+                    .foregroundStyle(theme.popupSecondaryText.color)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
             }
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(Style.cellWidth), spacing: Style.cellSpacing), count: columnCount),
                       spacing: Style.cellSpacing) {
                 ForEach(entries, id: \.url) { entry in
-                    FolderGridCell(iconPath: entry.url.path,
-                                   staticIcon: nil,
+                    FolderGridCell(iconPath: entry.isAccessible ? entry.url.path : nil,
+                                   staticIcon: entry.isAccessible ? nil : Self.inaccessibleIcon,
                                    label: entry.name,
-                                   dragURL: entry.url,
+                                   dragURL: entry.isAccessible ? entry.url : nil,
                                    contextMenu: { cellMenu(for: entry) }) {
                         // 中转不下钻：点击一律打开（文件夹开访达）,主用途是拖出。
                         NSWorkspace.shared.open(entry.url)
@@ -91,6 +100,8 @@ struct ShelfGridPopupView: View {
         })
         .onPreferenceChange(ShelfGridHeightKey.self) { gridHeight = $0 }
     }
+
+    private static let inaccessibleIcon = NSWorkspace.shared.icon(for: .data)
 
     private func cellMenu(for entry: FolderContentsLoader.Entry) -> NSMenu {
         let canPin = entry.isDirectory && !(isFolderPinned?(entry.url) ?? true)

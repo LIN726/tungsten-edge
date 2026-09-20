@@ -1049,6 +1049,7 @@ final class FinderP0Tests: XCTestCase {
                 subrole: kAXStandardWindowSubrole as String,
                 bounds: CGRect(x: 0, y: 0, width: 723, height: 626),
                 alpha: 1,
+                isMinimized: false,
                 application: application
             )
         )
@@ -1083,6 +1084,7 @@ final class FinderP0Tests: XCTestCase {
                 subrole: kAXStandardWindowSubrole as String,
                 bounds: frame,
                 alpha: 0,
+                isMinimized: false,
                 application: normal
             )
         )
@@ -1093,6 +1095,7 @@ final class FinderP0Tests: XCTestCase {
                 subrole: kAXStandardWindowSubrole as String,
                 bounds: frame,
                 alpha: 1,
+                isMinimized: false,
                 application: extensionProcess
             )
         )
@@ -1103,6 +1106,7 @@ final class FinderP0Tests: XCTestCase {
                 subrole: kAXStandardWindowSubrole as String,
                 bounds: frame,
                 alpha: 1,
+                isMinimized: false,
                 application: notificationCenter
             )
         )
@@ -1124,6 +1128,7 @@ final class FinderP0Tests: XCTestCase {
                 subrole: nil,
                 bounds: CGRect(x: 0, y: 0, width: 723, height: 626),
                 alpha: 1,
+                isMinimized: false,
                 application: application
             )
         )
@@ -1145,6 +1150,7 @@ final class FinderP0Tests: XCTestCase {
                 subrole: kAXStandardWindowSubrole as String,
                 bounds: CGRect(x: 0, y: 0, width: 723, height: 626),
                 alpha: 0,
+                isMinimized: false,
                 application: application
             )
         )
@@ -1360,7 +1366,8 @@ final class FinderP0Tests: XCTestCase {
                 title: "codex-finder-test-alpha-20260505",
                 role: "AXWindow",
                 subrole: "AXStandardWindow",
-                bounds: bounds
+                bounds: bounds,
+                isMinimized: false
             )
         )
         XCTAssertFalse(
@@ -1368,7 +1375,8 @@ final class FinderP0Tests: XCTestCase {
                 title: "访达",
                 role: "AXWindow",
                 subrole: "AXStandardWindow",
-                bounds: bounds
+                bounds: bounds,
+                isMinimized: false
             )
         )
         XCTAssertFalse(
@@ -1376,7 +1384,8 @@ final class FinderP0Tests: XCTestCase {
                 title: "Preview",
                 role: "AXWindow",
                 subrole: "AXDialog",
-                bounds: bounds
+                bounds: bounds,
+                isMinimized: false
             )
         )
         XCTAssertTrue(
@@ -1384,7 +1393,8 @@ final class FinderP0Tests: XCTestCase {
                 title: "Documents",
                 role: "AXWindow",
                 subrole: nil,
-                bounds: bounds
+                bounds: bounds,
+                isMinimized: false
             )
         )
         XCTAssertFalse(
@@ -1392,7 +1402,120 @@ final class FinderP0Tests: XCTestCase {
                 title: "Downloads",
                 role: "AXWindow",
                 subrole: "AXStandardWindow",
-                bounds: nil
+                bounds: nil,
+                isMinimized: false
+            )
+        )
+    }
+
+    // Finder reports every minimized window as AXDialog; only the min=true pair is admitted,
+    // and the frame / generic-title gates still apply to it.
+    func testFinderTrackableAdmitsMinimizedDialogSubroleOnly() {
+        let bounds = CGRect(x: 297, y: 611, width: 1227, height: 504)
+
+        XCTAssertTrue(
+            FinderWindowRules.isTrackable(
+                title: "Backup",
+                role: "AXWindow",
+                subrole: "AXDialog",
+                bounds: bounds,
+                isMinimized: true
+            )
+        )
+        XCTAssertFalse(
+            FinderWindowRules.isTrackable(
+                title: "Backup",
+                role: "AXWindow",
+                subrole: "AXDialog",
+                bounds: bounds,
+                isMinimized: false
+            )
+        )
+        XCTAssertFalse(
+            FinderWindowRules.isTrackable(
+                title: "Backup",
+                role: "AXSheet",
+                subrole: "AXDialog",
+                bounds: bounds,
+                isMinimized: true
+            )
+        )
+        XCTAssertFalse(
+            FinderWindowRules.isTrackable(
+                title: "访达",
+                role: "AXWindow",
+                subrole: "AXDialog",
+                bounds: bounds,
+                isMinimized: true
+            )
+        )
+        XCTAssertFalse(
+            FinderWindowRules.isTrackable(
+                title: "Backup",
+                role: "AXWindow",
+                subrole: "AXDialog",
+                bounds: CGRect(x: 0, y: 0, width: 30, height: 30),
+                isMinimized: true
+            )
+        )
+        XCTAssertFalse(
+            FinderWindowRules.isTrackable(
+                title: "Backup",
+                role: "AXWindow",
+                subrole: "AXFloatingWindow",
+                bounds: bounds,
+                isMinimized: true
+            )
+        )
+    }
+
+    func testAppTrackerEligibilityAdmitsMinimizedFinderDialogButNotOtherApps() {
+        let eligibility = AppTrackerWindowEligibility()
+        let bounds = CGRect(x: 297, y: 611, width: 1227, height: 504)
+        let finder = AppTrackerWindowEligibility.Application(
+            bundleIdentifier: FinderWindowRules.bundleIdentifier,
+            appName: "Finder",
+            activationPolicy: .regular,
+            executablePath: "/System/Library/CoreServices/Finder.app/Contents/MacOS/Finder"
+        )
+        let other = AppTrackerWindowEligibility.Application(
+            bundleIdentifier: "com.apple.TextEdit",
+            appName: "TextEdit",
+            activationPolicy: .regular,
+            executablePath: "/System/Applications/TextEdit.app/Contents/MacOS/TextEdit"
+        )
+
+        XCTAssertTrue(
+            eligibility.isEligible(
+                title: "Backup",
+                role: kAXWindowRole as String,
+                subrole: kAXDialogSubrole as String,
+                bounds: bounds,
+                alpha: 1,
+                isMinimized: true,
+                application: finder
+            )
+        )
+        XCTAssertFalse(
+            eligibility.isEligible(
+                title: "Backup",
+                role: kAXWindowRole as String,
+                subrole: kAXDialogSubrole as String,
+                bounds: bounds,
+                alpha: 1,
+                isMinimized: false,
+                application: finder
+            )
+        )
+        XCTAssertFalse(
+            eligibility.isEligible(
+                title: "Untitled",
+                role: kAXWindowRole as String,
+                subrole: kAXDialogSubrole as String,
+                bounds: bounds,
+                alpha: 1,
+                isMinimized: true,
+                application: other
             )
         )
     }

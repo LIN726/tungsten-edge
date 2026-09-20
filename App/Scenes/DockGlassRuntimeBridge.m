@@ -1,7 +1,9 @@
 #import "DockGlassRuntimeBridge.h"
 
+#import <AppKit/AppKit.h>
 #import <dlfcn.h>
 #import <limits.h>
+#import <QuartzCore/QuartzCore.h>
 
 typedef uint32_t (*MainConnectionIDFunction)(void);
 typedef int32_t (*SetWindowBlurFunction)(uint32_t, uint32_t, uint32_t);
@@ -45,5 +47,149 @@ BOOL TEDockGlassSetWindowBackgroundBlurRadius(NSInteger windowNumber, uint32_t r
         ) == 0;
     } @catch (__unused NSException *exception) {
         return NO;
+    }
+}
+
+static SEL TEDockGlassVariantSelector(void) {
+    return NSSelectorFromString(@"set_variant:");
+}
+
+BOOL TEDockGlassSupportsSystemVariant(void) {
+    Class glassClass = NSClassFromString(@"NSGlassEffectView");
+    return glassClass != Nil && [glassClass instancesRespondToSelector:TEDockGlassVariantSelector()];
+}
+
+BOOL TEDockGlassSetSystemVariant(id glassView, NSInteger variant) {
+    SEL selector = TEDockGlassVariantSelector();
+    if (glassView == nil || ![glassView respondsToSelector:selector]) return NO;
+    @try {
+        IMP implementation = [glassView methodForSelector:selector];
+        ((void (*)(id, SEL, NSInteger))implementation)(glassView, selector, variant);
+        return YES;
+    } @catch (__unused NSException *exception) {
+        return NO;
+    }
+}
+
+BOOL TEDockGlassSetRefraction(id candidate, double height, double amount) {
+    if (![candidate isKindOfClass:CALayer.class] || !isfinite(height) || !isfinite(amount) || height <= 0) {
+        return NO;
+    }
+    CALayer *layer = candidate;
+    @try {
+        NSMutableArray *filters = [layer.filters mutableCopy];
+        BOOL changed = NO;
+        for (NSUInteger index = 0; index < filters.count; index++) {
+            id filter = filters[index];
+            if (![filter respondsToSelector:NSSelectorFromString(@"type")] ||
+                ![[filter valueForKey:@"type"] isEqual:@"glassBackground"]) continue;
+            if (![filter respondsToSelector:NSSelectorFromString(@"inputKeys")] ||
+                ![filter respondsToSelector:@selector(copyWithZone:)]) continue;
+            NSArray *keys = [filter valueForKey:@"inputKeys"];
+            NSString *heightKey = @"inputInnerRefractionHeight";
+            NSString *amountKey = @"inputInnerRefractionAmount";
+            if (![keys containsObject:heightKey] || ![keys containsObject:amountKey]) continue;
+            if ([[filter valueForKey:heightKey] isEqual:@(height)] &&
+                [[filter valueForKey:amountKey] isEqual:@(amount)]) continue;
+            id copy = [filter copy];
+            [copy setValue:@(height) forKey:heightKey];
+            [copy setValue:@(amount) forKey:amountKey];
+            filters[index] = copy;
+            changed = YES;
+        }
+        if (changed) {
+            [CATransaction begin];
+            [CATransaction setDisableActions:YES];
+            layer.filters = filters;
+            [CATransaction commit];
+        }
+        return changed;
+    } @catch (__unused NSException *exception) {
+        return NO;
+    }
+}
+
+static BOOL TEDockGlassIsEffectLayer(id layer) {
+    Class effectLayer = NSClassFromString(@"CASDFLayer");
+    return effectLayer != Nil && [layer isKindOfClass:effectLayer] &&
+        [layer respondsToSelector:NSSelectorFromString(@"effect")] &&
+        [layer respondsToSelector:NSSelectorFromString(@"setEffect:")];
+}
+
+BOOL TEDockGlassSetHighlight(id layer, double keyAngle, double fillAngle, NSNumber *amount) {
+    if (!TEDockGlassIsEffectLayer(layer) || !isfinite(keyAngle) || !isfinite(fillAngle)) return NO;
+    if (amount != nil && (!isfinite(amount.doubleValue) || amount.doubleValue < 0 || amount.doubleValue > 1)) return NO;
+    @try {
+        id effect = [layer valueForKey:@"effect"];
+        Class highlightClass = NSClassFromString(@"CASDFKeyFillHighlightEffect");
+        if (highlightClass == Nil || ![effect isKindOfClass:highlightClass]) return NO;
+        for (NSString *selectorName in @[@"keyAngle", @"fillAngle", @"setKeyAngle:", @"setFillAngle:", @"copyWithZone:"]) {
+            if (![effect respondsToSelector:NSSelectorFromString(selectorName)]) return NO;
+        }
+        if (amount != nil) {
+            for (NSString *selectorName in @[@"keyAmount", @"fillAmount", @"setKeyAmount:", @"setFillAmount:"]) {
+                if (![effect respondsToSelector:NSSelectorFromString(selectorName)]) return NO;
+            }
+        }
+        if ([[effect valueForKey:@"keyAngle"] isEqual:@(keyAngle)] &&
+            [[effect valueForKey:@"fillAngle"] isEqual:@(fillAngle)] &&
+            (amount == nil || ([[effect valueForKey:@"keyAmount"] isEqual:amount] &&
+                              [[effect valueForKey:@"fillAmount"] isEqual:amount]))) return NO;
+        id copy = [effect copy];
+        [copy setValue:@(keyAngle) forKey:@"keyAngle"];
+        [copy setValue:@(fillAngle) forKey:@"fillAngle"];
+        if (amount != nil) {
+            [copy setValue:amount forKey:@"keyAmount"];
+            [copy setValue:amount forKey:@"fillAmount"];
+        }
+        [CATransaction begin];
+        @try {
+            [CATransaction setDisableActions:YES];
+            [layer setValue:copy forKey:@"effect"];
+        } @finally {
+            [CATransaction commit];
+        }
+        return YES;
+    } @catch (__unused NSException *exception) {
+        return NO;
+    }
+}
+
+static char TEDockGlassEffectObservationContext;
+
+@interface TEDockGlassEffectObservation : NSObject
+@property(nonatomic, strong) NSObject *layer;
+@property(nonatomic, copy) void (^onChange)(void);
+@property(nonatomic) BOOL observing;
+@end
+
+@implementation TEDockGlassEffectObservation
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object
+                       change:(NSDictionary *)change context:(void *)context {
+    if (context == &TEDockGlassEffectObservationContext) {
+        self.onChange();
+    } else {
+        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+    }
+}
+
+- (void)dealloc {
+    if (_observing) {
+        [_layer removeObserver:self forKeyPath:@"effect" context:&TEDockGlassEffectObservationContext];
+    }
+}
+@end
+
+NSObject *TEDockGlassObserveEffect(id layer, void (^onChange)(void)) {
+    if (!TEDockGlassIsEffectLayer(layer)) return nil;
+    TEDockGlassEffectObservation *token = [TEDockGlassEffectObservation new];
+    token.layer = layer;
+    token.onChange = onChange;
+    @try {
+        [layer addObserver:token forKeyPath:@"effect" options:0 context:&TEDockGlassEffectObservationContext];
+        token.observing = YES;
+        return token;
+    } @catch (__unused NSException *exception) {
+        return nil;
     }
 }

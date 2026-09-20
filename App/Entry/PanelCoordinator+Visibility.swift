@@ -165,7 +165,10 @@ extension PanelCoordinator {
     /// 钨极菜单开着时停掉边缘自动隐藏，否则空闲计时照跑、任务条会从菜单底下缩掉。
     func setTaskbarMenuOpen(_ open: Bool) {
         setAutoHideInhibitor(.taskbarMenuOpen, active: open)
+        resizeCursorMenuVisibilityChanged(open)
     }
+
+    var isTaskbarMenuOpen: Bool { visibilityState.autoHideInhibitors.contains(.taskbarMenuOpen) }
 
     func setAutoHideInhibitor(_ inhibitor: EdgeAutoHideInhibitor, active: Bool) {
         let before = visibilityState

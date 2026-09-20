@@ -24,9 +24,10 @@ enum PopoverAnimation {
 
 @MainActor
 final class PanelCoordinator: NSObject {
-    /// 面板几何随尺寸档位变，所以这些**不能再是 static**：换档时要跟着 store 走。
-    /// `shadowPadding` 例外——它固定 20，视图侧（抽屉、两个弹窗）继续静态引用。
-    var layoutMetrics: PanelLayoutMetrics { settingsStore.dockSize.metrics }
+    /// Panel geometry follows the user's bar height, so these are **instance** properties that
+    /// read the store; only `shadowPadding` stays static (fixed 20, referenced by the drawer
+    /// and both popups).
+    var layoutMetrics: PanelLayoutMetrics { settingsStore.dockPanelHeight.metrics }
     var panelHeight: CGFloat { layoutMetrics.panelHeight }
     var windowHeight: CGFloat { layoutMetrics.windowHeight }
     var capsuleWidth: CGFloat { layoutMetrics.capsuleWidth }
@@ -66,7 +67,7 @@ final class PanelCoordinator: NSObject {
     static let panelLevelOverride: NSWindow.Level? = DebugSwitch.panelLevel.value().flatMap(Int.init).map { NSWindow.Level(rawValue: $0) }
 
     var taskbarPlateCornerRadius: CGFloat {
-        DockShape.panelCornerRadius * settingsStore.dockSize.scale
+        DockShape.panelCornerRadius * settingsStore.dockPanelHeight.scale
     }
     static let shadowPadding: CGFloat = PanelLayoutMetrics.shadowPadding
 
@@ -126,6 +127,7 @@ final class PanelCoordinator: NSObject {
     enum PopupContent: Equatable {
         case folder(path: String)
         case shelf
+        case trash
         case windowTabs(bundleID: String, windowTitle: String)
     }
     var folderPopupPanel: NSPanel?
@@ -191,9 +193,35 @@ final class PanelCoordinator: NSObject {
     var taskbarScreenPlacementSubscription: AnyCancellable?
     var displayTopologySubscription: AnyCancellable?
     var showShelfSubscription: AnyCancellable?
-    var dockSizeSubscription: AnyCancellable?
-    /// 换档事务代次：吞掉换档过程中被其它路径排队的动画布局（见 beginDockSizeChange）。
-    var dockSizeChangeGeneration: UInt64 = 0
+    var showTrashSubscription: AnyCancellable?
+    var dockPanelHeightSubscription: AnyCancellable?
+    /// Height-change transaction generation: swallows animated relayouts other paths queue
+    /// while a height change is in flight (see `beginPanelHeightChange`).
+    var panelHeightChangeGeneration: UInt64 = 0
+    /// The drag session when **this** unit's grip is being dragged; nil on every other unit.
+    var interactiveResize: DockHeightDragSession?
+    /// True on **every** unit while any unit's grip is being dragged (orchestrator broadcast):
+    /// the height is shared, so every bar is mid-transaction. Gates animated layouts and the
+    /// label-width follow; see `setInteractiveHeightResizeActive`.
+    var interactiveHeightResizeActive = false
+    let heightResizePresentation = PanelHeightResizePresentation()
+    /// Bar height the window-lift context reports while a drag is active. Frozen at drag start
+    /// so the lift controller's context set stays equal tick to tick (a changed set restores
+    /// every lifted window and re-lifts ≤0.2s later — several times per second during a drag).
+    var liftContextPanelHeightOverride: CGFloat?
+    /// This unit's grip began (`true`) / ended (`false`) a drag. The orchestrator fans it out to
+    /// every unit and remembers the origin so a topology change can end the drag cleanly.
+    var onInteractiveHeightResizeSession: ((Bool) -> Void)?
+    var onInteractiveHeightResizeUpdate: (() -> Void)?
+    /// Handle into the strip's grip view for `cancelInteractiveResize()`.
+    let resizeGripController = StripResizeGripController()
+    /// The ▲▼ glyph panel that stands in for the system cursor (`PanelCoordinator+ResizeCursor`).
+    var resizeCursorPanel: NSPanel?
+    var resizeCursorHost: ManualPanelHost?
+    /// Latest grip-zone hover report, kept so a menu opening or closing can put the ▲▼ back
+    /// without waiting for the pointer to move.
+    var gripHoverPointer: CGPoint?
+    var resizeCursorReassertTimer: Timer?
     /// 抽屉拖回任务条·"松手才变长"：转正进行中冻结任务条宽度，转正态结束（松手落定 / 拖出还原）再 relayout。
     var stripSlotCollapseSubscription: AnyCancellable?
     var springOpenTimer: Timer?
@@ -212,6 +240,22 @@ final class PanelCoordinator: NSObject {
     /// 正在拖的 strip 卡 bundleID,松手时用它判断有没有收进抽屉。
     var springDragBundleID: String?
     var lastDesiredWidth: CGFloat = 0
+    /// 标签变长变短的「跟随窗」：条内标签盒按 `LabelWidthAnimation` 逐帧真实变宽（`LabelBoxWidthDriver`），
+    /// 每帧把实时宽报进来（`labelBoxWidthDidTick`），面板在同一轮里无动画地把 frame 设过去，和那一帧的
+    /// 内容一起提交。内容总宽 = 起步时量到的宽 + Σ(盒实时宽 − 盒起始宽)。**不能事后量**（量到上一帧、
+    /// 显示又晚一帧，底板稳定落后两帧），**也不能自己按曲线预测**（两套时钟对不齐，±1 帧抖动）——
+    /// 屏幕连拍 2026-09-13 两条路都量过。截止后再量一次终值兜底。
+    var labelFollowTimer: Timer?
+    var labelFollowRestWidth: CGFloat = 0
+    var labelBoxStart: [String: CGFloat] = [:]
+    var labelBoxLive: [String: CGFloat] = [:]
+    var labelFollowDeadline: CFTimeInterval = 0
+    /// 上一份快照的窗口 id 集合：集合变了（卡增减）就算跟随窗开着也走 0.22s 窗口动画；集合没变而跟随窗
+    /// 开着的快照则不量宽（量到的是中间值，会把面板往回拽）。
+    var lastSnapshotWindowIDs: Set<WindowID>?
+    /// 最近一次**带动画**的 `setFrames` 预计结束时刻：跟随窗的逐帧 setFrame 在此之前不抢（否则会把
+    /// 卡增减那条 0.22s 的窗口动画打断成一步到位）。
+    var animatedFramesUntil: CFTimeInterval = 0
     var lastDrawerSize: CGSize = CGSize(width: 210, height: 60)
     /// 目标 frame 驱动布局：每次 layoutPanels 算齐三个目标并存这里。drop zone 命中、开抽屉定位都读**目标**
     /// 而非 live frame——动画中 live frame 是中途值,会和视觉/逻辑短暂不一致（Codex 二审 P2）。
@@ -385,6 +429,8 @@ final class PanelCoordinator: NSObject {
     func tearDown() {
         guard !isSuspendedForPermissionLoss else { return }
         isSuspendedForPermissionLoss = true
+        cancelInteractiveResize()
+        tearDownResizeCursor()
         fullscreenIntentRoutingEnabled = false
         if let transaction = fullscreenIntentTransaction {
             cancelFullscreenIntent(generation: transaction.generation, reason: "teardown")
@@ -452,9 +498,11 @@ final class PanelCoordinator: NSObject {
         let geometry = WindowLiftAvoidance.Geometry(
             screenFrame: screen.frame,
             visibleFrame: screen.visibleFrame,
+            // Visibility guards above stay live (a hidden or unplugged bar leaves the set);
+            // only the height is frozen during a drag, see `liftContextPanelHeightOverride`.
             taskbarTop: screen.frame.minY
                 + layoutMetrics.bottomGap
-                + layoutMetrics.panelHeight
+                + (liftContextPanelHeightOverride ?? layoutMetrics.panelHeight)
         )
         return WindowLiftAvoidanceContext(
             geometry: geometry,

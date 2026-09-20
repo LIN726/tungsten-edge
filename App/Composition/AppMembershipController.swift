@@ -144,7 +144,7 @@ enum AppMembershipProjection {
         drawerIDs: [String],
         keptIDs: [String],
         runningIDs: Set<String>,
-        limit: Int = 9
+        limit: Int
     ) -> [String] {
         Array(visibleDrawerIDs(
             drawerIDs: drawerIDs,

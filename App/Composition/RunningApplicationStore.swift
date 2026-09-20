@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import os
 
 /// Process-state projection for app-level launcher chips.
 ///
@@ -40,6 +41,32 @@ final class RunningApplicationStore: ObservableObject {
         let task: Task<Void, Never>
     }
 
+    /// KVO on a tracked process's `activationPolicy`. Books quits into a `.prohibited` resident
+    /// and a menu-bar app drops back to `.accessory` when its settings window closes; neither
+    /// posts a workspace notification, so without this the running dot outlives the Dock icon
+    /// until some unrelated activation finally runs a sweep.
+    ///
+    /// Holds the `NSRunningApplication` strongly: the instances handed out by workspace
+    /// notifications and `runningApplications` are transient, and an observed one deallocating
+    /// under a live observation crashes the process (AppKit logs "being deallocated while
+    /// observers are still registered" first). `deinit` invalidates before the object is released,
+    /// so every removal path — prune, `stop()`, store deinit — unregisters in the right order.
+    private final class PolicyObservation {
+        let identity: ProcessIdentity
+        let application: NSRunningApplication
+        let observation: NSKeyValueObservation
+
+        init(identity: ProcessIdentity, application: NSRunningApplication, observation: NSKeyValueObservation) {
+            self.identity = identity
+            self.application = application
+            self.observation = observation
+        }
+
+        deinit {
+            observation.invalidate()
+        }
+    }
+
     /// Absolute retry times are 0.2/0.5/1/2/4/8/12/20s after the notification.
     /// The final bound matches the launch-session fallback: after that the UI has already
     /// stopped presenting the process as an active launch.
@@ -70,12 +97,14 @@ final class RunningApplicationStore: ObservableObject {
     private let workspaceObservationProvider: (() -> [RunningStateSweepDecision.Observation])?
     private let uptimeProvider: () -> TimeInterval
     private var processesByPID: [pid_t: ProcessState] = [:]
+    private var policyObservationsByPID: [pid_t: PolicyObservation] = [:]
     private var policyRechecksByPID: [pid_t: PolicyRecheck] = [:]
     private var terminationRechecksByPID: [pid_t: TerminationRecheck] = [:]
     private var observers: [NSObjectProtocol] = []
     private var pendingWorkspaceSweepTask: Task<Void, Never>?
     private var lastWorkspaceSweepAt: TimeInterval?
     private var isStarted = false
+    private let logger = Logger(subsystem: "com.caye.macosdockcc.v2", category: "running-state")
 
     init(
         workspace: NSWorkspace = .shared,
@@ -272,6 +301,7 @@ final class RunningApplicationStore: ObservableObject {
             bundleID: identity.bundleID,
             isHidden: application.isHidden
         )
+        observePolicy(of: application, identity: identity)
         return true
     }
 
@@ -303,6 +333,7 @@ final class RunningApplicationStore: ObservableObject {
             bundleID: identity.bundleID,
             isHidden: isHidden
         )
+        observePolicy(of: application, identity: identity)
     }
 
     private func handleTermination(_ application: NSRunningApplication) {
@@ -550,7 +581,16 @@ final class RunningApplicationStore: ObservableObject {
             observationsByPID: observationsByPID,
             currentGenerationsByPID: currentGenerations
         )
+        let applicationsByPID = Dictionary(liveApplications.map { ($0.processIdentifier, $0) },
+                                           uniquingKeysWith: { first, _ in first })
+        apply(plan, applicationsByPID: applicationsByPID)
+    }
 
+    /// Shared tail of the full workspace sweep and the one-process KVO sweep.
+    private func apply(
+        _ plan: RunningStateSweepDecision.Plan,
+        applicationsByPID: [pid_t: NSRunningApplication]
+    ) {
         for removal in plan.removals {
             guard processesByPID[removal.pid]?.identity.generation == removal.generation else { continue }
             processesByPID.removeValue(forKey: removal.pid)
@@ -566,9 +606,10 @@ final class RunningApplicationStore: ObservableObject {
                 bundleID: observation.bundleID,
                 isHidden: observation.isHidden
             )
+            if let application = applicationsByPID[observation.generation.pid] {
+                observePolicy(of: application, identity: identity)
+            }
         }
-        let applicationsByPID = Dictionary(liveApplications.map { ($0.processIdentifier, $0) },
-                                           uniquingKeysWith: { first, _ in first })
         for observation in plan.nonRegularConfirmations {
             guard let application = applicationsByPID[observation.generation.pid] else { continue }
             schedulePolicyRechecks(
@@ -588,7 +629,59 @@ final class RunningApplicationStore: ObservableObject {
               state.identity.generation == generation,
               state.bundleID == bundleID else { return }
         processesByPID.removeValue(forKey: pid)
+        logger.info("non-regular confirmed: pid=\(pid) \(bundleID, privacy: .public) dropped from the running projection")
         publishProjection()
+    }
+
+    // MARK: - Activation Policy Observation
+
+    private func observePolicy(of application: NSRunningApplication, identity: ProcessIdentity) {
+        let pid = identity.generation.pid
+        if policyObservationsByPID[pid]?.identity == identity { return }
+        let observation = application.observe(\.activationPolicy) { [weak self] application, _ in
+            Task { @MainActor [weak self] in
+                self?.handlePolicyChange(application, identity: identity)
+            }
+        }
+        policyObservationsByPID[pid] = PolicyObservation(
+            identity: identity,
+            application: application,
+            observation: observation
+        )
+    }
+
+    /// A one-process sweep through the same pure plan as the full sweep: a flip back to
+    /// `.regular` is an ordinary upsert, an explicit non-regular policy enters the existing
+    /// recheck-then-confirm sequence (0.2s later, same generation and bundle), and an
+    /// unreadable observation is unknown and changes nothing.
+    private func handlePolicyChange(_ application: NSRunningApplication, identity: ProcessIdentity) {
+        let pid = identity.generation.pid
+        guard isStarted, let state = processesByPID[pid], state.identity == identity else { return }
+        let currentGeneration = processGeneration(pid: pid)
+        var observationsByPID: [pid_t: RunningStateSweepDecision.Observation] = [:]
+        if let currentGeneration,
+           let bundleID = application.bundleIdentifier, !bundleID.isEmpty {
+            let isRegular = application.activationPolicy == .regular
+            observationsByPID[pid] = RunningStateSweepDecision.Observation(
+                generation: currentGeneration,
+                bundleID: bundleID,
+                isHidden: application.isHidden,
+                activationPolicy: isRegular ? .regular : .nonRegular
+            )
+            if !isRegular {
+                logger.info("policy left .regular: pid=\(pid) \(bundleID, privacy: .public), confirming before dropping the running dot")
+            }
+        }
+        let plan = RunningStateSweepDecision.plan(
+            trackedByPID: [pid: RunningStateSweepDecision.Tracked(
+                generation: state.identity.generation,
+                bundleID: state.bundleID,
+                isHidden: state.isHidden
+            )],
+            observationsByPID: observationsByPID,
+            currentGenerationsByPID: [pid: currentGeneration]
+        )
+        apply(plan, applicationsByPID: [pid: application])
     }
 
     private func cancelPolicyRecheck(forPID pid: pid_t, token: UUID? = nil) {
@@ -622,6 +715,10 @@ final class RunningApplicationStore: ObservableObject {
     }
 
     private func publishProjection() {
+        // Every removal path ends here; dropping the entry invalidates its KVO observation.
+        policyObservationsByPID = policyObservationsByPID.filter { pid, observation in
+            processesByPID[pid]?.identity == observation.identity
+        }
         let grouped = Dictionary(grouping: processesByPID.values, by: \ProcessState.bundleID)
         let nextRunning = Set(grouped.keys)
         let nextHidden = Set(grouped.compactMap { bundleID, processes in

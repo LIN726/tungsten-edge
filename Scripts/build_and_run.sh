@@ -16,6 +16,12 @@ DEVELOPER_ID="${DEVELOPER_ID_APPLICATION:-Developer ID Application: Suzhou Mubai
 FALLBACK_SIGNING_IDENTITY="macos-dock-cc Local Code Signing"
 
 build_app() {
+  # Force the universal product to be re-created on every build. After an `xcodebuild test` has
+  # already relinked the per-arch binaries, a plain build can skip CreateUniversalBinary and leave
+  # the previous executable in the .app (re-signed below, so its mtime looks fresh) — the launched
+  # app then runs old code while the build log says BUILD SUCCEEDED.
+  rm -f "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+  rm -f "$APP_EXECUTABLE"
   xcodebuild -project "$PROJECT_PATH" -scheme "$APP_NAME" -configuration Debug -derivedDataPath "$DERIVED_DATA_DIR" CODE_SIGN_IDENTITY="-" build >/tmp/macos-dock-cc-v2-build.log 2>&1
 }
 

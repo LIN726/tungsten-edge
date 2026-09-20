@@ -108,6 +108,27 @@ enum LaunchGateDecision {
         }
         return .hold
     }
+
+    /// A launcher tap whose bundle already has a live, finished-launching process that
+    /// `evaluate` could only ever release on policy grounds (a menu-bar `.accessory` app,
+    /// or a `.prohibited` process of a bundle that declares no window) needs no session:
+    /// there is no launch to wait for, and a bounce would just lock the chip for the
+    /// settling floor on every click. The caller sends the plain reopen instead.
+    static func runningProcessNeedsNoSession(
+        activationPolicy: ActivationPolicy,
+        isFinishedLaunching: Bool,
+        bundleDeclaresNoWindow: Bool
+    ) -> Bool {
+        guard isFinishedLaunching else { return false }
+        switch activationPolicy {
+        case .accessory:
+            return true
+        case .prohibited:
+            return bundleDeclaresNoWindow
+        case .regular, .unknown:
+            return false
+        }
+    }
 }
 
 /// Detects a real window identity that appeared after a launch session began.

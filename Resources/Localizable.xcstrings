@@ -1,246 +1,87 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "Now Playing: %@": {
+    "Cancel": {
+      "extractionState": "manual",
       "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在播放：%@"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Now Playing: %@"
+            "value": "Cancel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
           }
         }
       }
     },
-    "Play": {
+    "Single-display mode": {
+      "comment": "单/多屏模式子菜单 · 第一组标题（跟随栏 / 固定在某屏）",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "播放"
+            "value": "单屏模式"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Play"
+            "value": "Single-display mode"
           }
         }
       }
     },
-    "Pause": {
+    "Multi-display mode": {
+      "comment": "单/多屏模式子菜单 · 第二组标题（镜像栏 / 每屏独立栏）",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "暂停"
+            "value": "多屏模式"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pause"
+            "value": "Multi-display mode"
           }
         }
       }
     },
-    "Next Track": {
+    "Mirrored bars": {
+      "comment": "单/多屏模式 ③：每块屏各一条、内容相同",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "下一首"
+            "value": "镜像栏"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Next Track"
+            "value": "Mirrored bars"
           }
         }
       }
     },
-    "Previous Track": {
+    "Separate bar per display": {
+      "comment": "单/多屏模式 ④：每块屏各一条、各屏只列本屏窗口",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "上一首"
+            "value": "每屏独立栏"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Previous Track"
-          }
-        }
-      }
-    },
-    "New Private Window": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新建无痕窗口"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Private Window"
-          }
-        }
-      }
-    },
-    "Loading tabs...": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在加载标签页…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Loading tabs..."
-          }
-        }
-      }
-    },
-    "No matching tabs": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无匹配的标签页"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No matching tabs"
-          }
-        }
-      }
-    },
-    "Tabs · %d": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "标签页 · %d"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tabs · %d"
-          }
-        }
-      }
-    },
-    "View Tabs": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "查看标签页"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "View Tabs"
-          }
-        }
-      }
-    },
-    "Close Tab": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭标签页"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close Tab"
-          }
-        }
-      }
-    },
-    "On one display": {
-      "comment": "任务条显示位置子菜单 · 第一组标题（跟随鼠标 / 固定到某屏）",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "只在一块屏上"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "On one display"
-          }
-        }
-      }
-    },
-    "One taskbar per display": {
-      "comment": "任务条显示位置子菜单 · 第二组标题（③④）",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每块屏各一条"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "One taskbar per display"
-          }
-        }
-      }
-    },
-    "Show all windows": {
-      "comment": "任务条显示位置 ③：每块屏各一条、内容相同",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示全部窗口"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show all windows"
-          }
-        }
-      }
-    },
-    "Show only this display's windows": {
-      "comment": "任务条显示位置 ④：每块屏各一条、各屏只显示本屏窗口",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "只显示本屏的窗口"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show only this display's windows"
+            "value": "Separate bar per display"
           }
         }
       }
@@ -279,7 +120,7 @@
       }
     },
     "%@ (disconnected)": {
-      "comment": "%@ 是屏幕名，「显示位置」Picker 里已断开的固定屏",
+      "comment": "%@ 是屏幕名；单/多屏模式子菜单里已断开的固定屏，结果再套进「Pinned to %@」",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -609,6 +450,23 @@
         }
       }
     },
+    "Are you sure you want to permanently erase the items in the Trash?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you sure you want to permanently erase the items in the Trash?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确定要永久抹掉废纸篓中的项目吗？"
+          }
+        }
+      }
+    },
     "Attach": {
       "comment": "设置窗口 · 反馈附件选择面板的确认按钮",
       "localizations": {
@@ -891,18 +749,18 @@
         }
       }
     },
-    "Check your inbox and click the confirmation link to finish subscribing. If it is not there, check your spam folder.": {
+    "Check your inbox and click the confirmation link to finish subscribing. If it is not there, check your spam folder, or the Promotions tab in Gmail.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请到邮箱点击确认链接完成订阅。如果收件箱没有，请查一下垃圾邮件。"
+            "value": "请到邮箱点击确认链接完成订阅。如果收件箱没有，请查一下垃圾邮件；Gmail 则要看「推广」标签页。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check your inbox and click the confirmation link to finish subscribing. If it is not there, check your spam folder."
+            "value": "Check your inbox and click the confirmation link to finish subscribing. If it is not there, check your spam folder, or the Promotions tab in Gmail."
           }
         }
       }
@@ -1050,6 +908,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Copy"
+          }
+        }
+      }
+    },
+    "Copy Name": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷贝文件名"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Name"
           }
         }
       }
@@ -1366,6 +1240,40 @@
         }
       }
     },
+    "Empty Trash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empty Trash"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清倒废纸篓"
+          }
+        }
+      }
+    },
+    "Empty Trash…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empty Trash…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清倒废纸篓…"
+          }
+        }
+      }
+    },
     "Escape and Delete can’t be the key.": {
       "comment": "设置窗口 · 改键被拒弹窗",
       "localizations": {
@@ -1395,22 +1303,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Export Taskbar Snapshot"
-          }
-        }
-      }
-    },
-    "Extra Large": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "特大"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Extra Large"
           }
         }
       }
@@ -1533,19 +1425,36 @@
         }
       }
     },
-    "Follow the mouse": {
-      "comment": "任务条显示位置的默认档",
+    "Follows the pointer": {
+      "comment": "单/多屏模式的默认档（单屏组第一项）：鼠标在另一块屏底边驻留约 0.35s 栏才搬过去，不是跟着光标滑",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "跟随鼠标"
+            "value": "跟随栏"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Follow the mouse"
+            "value": "Follows the pointer"
+          }
+        }
+      }
+    },
+    "Hover a screen's bottom edge to switch": {
+      "comment": "单/多屏模式 · 跟随栏后面同一行的灰字：鼠标在另一块屏底边驻留约 0.35s 栏才搬过去，不是跟着光标滑",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鼠标悬停屏幕底部切换"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hover a screen's bottom edge to switch"
           }
         }
       }
@@ -1879,22 +1788,6 @@
         }
       }
     },
-    "Large": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "大"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Large"
-          }
-        }
-      }
-    },
     "Later": {
       "localizations": {
         "zh-Hans": {
@@ -1956,22 +1849,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Licensing opens with version 1.0. Tungsten Edge is completely free until then, and founding users who have confirmed their email will receive a permanent free license key."
-          }
-        }
-      }
-    },
-    "Medium": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Medium"
           }
         }
       }
@@ -2417,6 +2294,23 @@
         }
       }
     },
+    "Open Trash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Trash"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开废纸篓"
+          }
+        }
+      }
+    },
     "Open With": {
       "localizations": {
         "zh-Hans": {
@@ -2640,6 +2534,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pin to Taskbar"
+          }
+        }
+      }
+    },
+    "Pinned to %@": {
+      "comment": "单/多屏模式子菜单 · 单屏组里每块屏一项，%@ 是屏幕名。中文照 owner 定稿在「在」后留空格",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定在 %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned to %@"
           }
         }
       }
@@ -3201,6 +3112,23 @@
         }
       }
     },
+    "Show Trash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Trash"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示废纸篓"
+          }
+        }
+      }
+    },
     "Show app name on hover": {
       "localizations": {
         "zh-Hans": {
@@ -3233,19 +3161,19 @@
         }
       }
     },
-    "Show taskbar on": {
+    "Single/Multi-Display Mode": {
       "comment": "状态栏菜单 · 钨极组的多屏放置子菜单标题",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "钨极 Dock 栏显示在"
+            "value": "单/多屏模式"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show taskbar on"
+            "value": "Single/Multi-Display Mode"
           }
         }
       }
@@ -3267,18 +3195,18 @@
         }
       }
     },
-    "Small": {
+    "Some items can’t be accessed. Allow Tungsten Edge to access their folder in your Mac’s privacy settings.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "小"
+            "value": "有项目暂时无法访问。请在系统隐私设置里允许钨极访问它们所在的文件夹。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Small"
+            "value": "Some items can’t be accessed. Allow Tungsten Edge to access their folder in your Mac’s privacy settings."
           }
         }
       }
@@ -3427,22 +3355,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Taskbar"
-          }
-        }
-      }
-    },
-    "Taskbar Size": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock 栏大小"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Taskbar Size"
           }
         }
       }
@@ -3877,6 +3789,23 @@
         }
       }
     },
+    "Trash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trash"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "废纸篓"
+          }
+        }
+      }
+    },
     "Tungsten Edge": {
       "comment": "钨极组的分组标题（热键未注册时）。中文界面带品牌后缀「钨极」，英文只用产品名。",
       "localizations": {
@@ -4277,6 +4206,23 @@
         }
       }
     },
+    "You can’t undo this action.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can’t undo this action."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此操作无法撤销。"
+          }
+        }
+      }
+    },
     "Your message or attachments were not accepted. Try shortening the message or using a different file, or email support@tungstenedge.app.": {
       "comment": "反馈失败 · 内容或附件被服务端拒绝",
       "localizations": {
@@ -4372,6 +4318,250 @@
           "stringUnit": {
             "state": "translated",
             "value": "you@example.com"
+          }
+        }
+      }
+    },
+    "Trash is empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trash is empty"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "废纸篓是空的"
+          }
+        }
+      }
+    },
+    "Reading Trash…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading Trash…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在读取废纸篓…"
+          }
+        }
+      }
+    },
+    "Allow Finder automation to see what’s in the Trash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Finder automation to see what’s in the Trash"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许访达自动化后才能显示废纸篓内容"
+          }
+        }
+      }
+    },
+    "Open in Finder to see the rest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Finder to see the rest"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其余内容请在访达中查看"
+          }
+        }
+      }
+    },
+    "Close Tab": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭标签页"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Tab"
+          }
+        }
+      }
+    },
+    "New Private Window": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建无痕窗口"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Private Window"
+          }
+        }
+      }
+    },
+    "Loading tabs...": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载标签页…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading tabs..."
+          }
+        }
+      }
+    },
+    "Pause": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂停"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause"
+          }
+        }
+      }
+    },
+    "Now Playing: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在播放：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Now Playing: %@"
+          }
+        }
+      }
+    },
+    "Play": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play"
+          }
+        }
+      }
+    },
+    "Previous Track": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一首"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous Track"
+          }
+        }
+      }
+    },
+    "View Tabs": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看标签页"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Tabs"
+          }
+        }
+      }
+    },
+    "No matching tabs": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无匹配的标签页"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching tabs"
+          }
+        }
+      }
+    },
+    "Tabs · %d": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页 · %d"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs · %d"
+          }
+        }
+      }
+    },
+    "Next Track": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一首"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Track"
           }
         }
       }

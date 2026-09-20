@@ -11,7 +11,7 @@ import Foundation
 /// （而不是那个 app 自己的菜单）比什么都不弹更糟。代价是窄缝右键完全没反应，这是已知取舍。
 ///
 /// 两种缝靠宽度分辨：分割线两侧的空当是
-/// `2(HStack 间距) + 5(1pt 发丝线 + 左右各 2pt 内边距) + 2(HStack 间距) = 9pt`，
+/// `2(HStack 间距) + 9(1pt 发丝线 + 左右各 4pt 内边距) + 2(HStack 间距) = 13pt`（`dividerGapWidth`），
 /// 普通 chip 间距只有 `2pt`；阈值取两者之间即可，且随档位一起缩放。
 ///
 /// **阈值必须严格落在两者之间，改 `Style.chipSpacing` 就要同步改它。**
@@ -20,7 +20,7 @@ import Foundation
 /// 于是整条任务条右键完全失效。
 enum StripContextMenuZone {
     /// 中档基线。调用方传 `defaultMinimumGapWidth * scale`。
-    /// 5pt：大于普通缝 2pt，小于分割线缝 9pt。
+    /// 5pt：大于普通缝 2pt，小于分割线缝 13pt。
     static let defaultMinimumGapWidth: CGFloat = 5
 
     /// `point` 与 `chipFrames` 都在 "strip" 坐标空间（左上原点、y 向下）。
@@ -50,6 +50,53 @@ enum StripContextMenuZone {
                 let width = frame.minX - gapStart
                 return width >= minimumGapWidth && point.x >= gapStart
             }
+            gapStart = max(gapStart, frame.maxX)
+        }
+        return false
+    }
+
+    /// Native-tier width of the gap around a zone divider, chip edge to chip edge: the 1pt
+    /// hairline, its side padding and one `chipSpacing` each side. `DockStripView` derives the
+    /// divider's padding from it.
+    static let dividerGapWidth: CGFloat = 13
+
+    /// Native-tier clearance the drag-to-resize grip keeps from every chip. Callers pass
+    /// `defaultGripChipClearance * scale`. 2.5pt leaves an 8pt band in the divider gap: the ▲▼
+    /// cursor is 9pt wide and does not scale, so at the band's edge it stays ~2pt short of the
+    /// icon artwork. Must stay below half the divider gap, or the grip disappears there.
+    static let defaultGripChipClearance: CGFloat = 2.5
+
+    /// The drag-to-resize grip: the right-click zones minus `chipClearance` on each side of
+    /// every chip (x only — the gap test above is x only too). The right-click zone itself
+    /// stays the full gap.
+    ///
+    /// The end insets are the grip's **fallback only**: while any divider gap exists the grip
+    /// lives there alone, and the ends take over when the bar has a single zone and therefore
+    /// no divider. Right-click keeps the ends either way.
+    static func gripClaims(
+        point: CGPoint,
+        chipFrames: [CGRect],
+        bounds: CGRect,
+        minimumGapWidth: CGFloat,
+        chipClearance: CGFloat
+    ) -> Bool {
+        guard claims(point: point, chipFrames: chipFrames, bounds: bounds,
+                     minimumGapWidth: minimumGapWidth) else { return false }
+        guard !chipFrames.contains(where: {
+            point.x > $0.minX - chipClearance && point.x < $0.maxX + chipClearance
+        }) else { return false }
+        let isEndInset = !chipFrames.contains { $0.minX <= point.x }
+            || !chipFrames.contains { $0.maxX >= point.x }
+        return !isEndInset || !hasDividerGap(chipFrames: chipFrames, minimumGapWidth: minimumGapWidth)
+    }
+
+    /// Whether any chip-to-chip gap is wide enough to be a zone divider's — the same running-max
+    /// walk as `claims`, so an overlap never reads as a gap.
+    static func hasDividerGap(chipFrames: [CGRect], minimumGapWidth: CGFloat) -> Bool {
+        let sorted = chipFrames.sorted { $0.minX < $1.minX }
+        guard var gapStart = sorted.first?.maxX else { return false }
+        for frame in sorted.dropFirst() {
+            if frame.minX - gapStart >= minimumGapWidth { return true }
             gapStart = max(gapStart, frame.maxX)
         }
         return false

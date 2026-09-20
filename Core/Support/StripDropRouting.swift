@@ -14,6 +14,7 @@ enum StripDropRouting {
     enum Target: Equatable {
         /// 落在中转格 → 暂存（任何文件/文件夹，引用不搬家）。
         case stash
+        case trash
         /// 落在某个固定文件夹 chip → 把来源移入该文件夹。
         case moveInto(path: String)
         /// 落在文件夹区 → 固定目录到显示序 index 位（仅目录有效，由调用方过滤）。
@@ -31,6 +32,9 @@ enum StripDropRouting {
     ///     「应用走文件分支」，而那正是本参数存在的理由——`.app` 在文件系统里就是目录，
     ///     `.moveInto` 是真实的文件移动/跨卷复制，会把用户的应用从「应用程序」里搬走。
     ///     纯函数入参而不是在这里读盘，是为了让这条安全边界能进单测。
+    ///   - isTrashItemDrag: every dragged URL is inside a Trash (`TrashPath`). **No default**, for
+    ///     the same reason as `isApplicationDrag`: an omission would compile into "stash a reference
+    ///     into the Trash" or "move a Trash item with our own file access". Checked before the app gate.
     ///   - shelfFrame: 中转格 frame（独立 PreferenceKey 上报，**不混入 folderFrames**）。
     ///     **nil = 用户关掉了中转格**。调用方必须直接按设置传 `showShelf ? frame : nil`，
     ///     不能等 PreferenceKey 把旧帧清掉——`ShelfFramePreferenceKey.reduce` 刻意忽略 `.zero`，
@@ -43,14 +47,21 @@ enum StripDropRouting {
     ///     右侧，覆盖「第一次拖目录进来固定」的空区场景）。
     static func route(location: CGPoint,
                       isApplicationDrag: Bool,
+                      isTrashItemDrag: Bool,
                       shelfFrame: CGRect?,
+                      trashFrame: CGRect?,
                       folderFrames: [String: CGRect],
                       orderedPaths: [String],
                       headSlack: CGFloat = defaultHeadSlack,
                       tailSlack: CGFloat = 24) -> Target {
-        // ⚠️ 安全闸，必须是第一句：应用永远走保留，绝不落到 .moveInto / .pin / .stash。
+        // Trash items are refused everywhere on the bar, the Trash chip and app landing included.
+        if isTrashItemDrag { return .none }
+
+        // ⚠️ 安全闸，紧跟废纸篓那一句：应用永远走保留，绝不落到 .moveInto / .pin / .stash。
         // 整条任务条都是它的落点——用户的直觉是「拖到 Dock 上」，落在窗口区必须算数。
         if isApplicationDrag { return .keepApp }
+
+        if let trashFrame, trashFrame != .zero, location.x >= trashFrame.minX { return .trash }
 
         let frames = orderedPaths.compactMap { folderFrames["folder-" + $0] }
 
@@ -110,5 +121,14 @@ extension StripDropRouting {
             return orderedIDs.count
         }
         return after ? index + 1 : index
+    }
+
+    /// Whether the strip answers a drag with the generic operation (no cursor badge) instead of
+    /// SwiftUI's `.copy` (the green plus). Only over the Trash, where Tungsten Edge moves the file
+    /// itself: `.copy` reads as "a copy goes in", and `.move` is never an option — it tells the source
+    /// the item left, and Finder deletes an app it dragged in. A source that does not offer generic
+    /// (e.g. ⌥ held) keeps `.copy`.
+    static func usesGenericOperation(hoveredTarget: Target?, proposedIsCopy: Bool, sourceAllowsGeneric: Bool) -> Bool {
+        proposedIsCopy && sourceAllowsGeneric && hoveredTarget == .trash
     }
 }

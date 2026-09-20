@@ -296,3 +296,82 @@ final class PhantomSeatDecisionTests: XCTestCase {
         XCTAssertTrue(evaluation.holdReasons.isEmpty)
     }
 }
+
+/// Pass A「并入标签」纯决策层（TabMergeDecision）。
+/// 背景（2026-09-12 访达实测）：「合并所有窗口」/ 把标签拖进别的窗后，原窗成为 order-out 后台标签——
+/// 离开 AX、仍在 CG、onscreen=false、CG bounds 被改成所属窗口的 frame。旧路径无条件保座位 → 一扇窗
+/// 两张卡，随后同 frame 两个老座位让切标签顶替失效，每切一次再裂一张。
+final class TabMergeDecisionTests: XCTestCase {
+
+    private func fk(_ b: CGRect?) -> String? {
+        guard let b else { return nil }
+        return "\(Int(b.origin.x.rounded())):\(Int(b.origin.y.rounded())):\(Int(b.size.width.rounded())):\(Int(b.size.height.rounded()))"
+    }
+
+    private func sibling(cg: CGWindowID, bounds: CGRect?, min: Bool = false) -> TabMergeDecision.AXPresentSeat {
+        TabMergeDecision.AXPresentSeat(activeCgID: cg, bounds: bounds, isMinimized: min)
+    }
+
+    private let mergedFrame = CGRect(x: 297, y: 340, width: 1227, height: 504)
+    private let oldFrame = CGRect(x: 268, y: 311, width: 1227, height: 504)
+
+    func testMergedTabReleasesAndLearnsOwner() {
+        // 实测形态：座位存的 AX 帧还是旧窗位置，CG bounds 已跟着所属窗走；兄弟座位 AX 在场同 frame。
+        let v = TabMergeDecision.verdict(
+            candidateIsOnScreen: false, candidateCGBounds: mergedFrame, candidateSeatBounds: oldFrame,
+            axPresentSeats: [sibling(cg: 21637, bounds: mergedFrame)], frameKey: fk
+        )
+        XCTAssertEqual(v, .release(ownerActiveCgID: 21637))
+    }
+
+    func testOnScreenCandidateIsNeverReleased() {
+        // 真可见窗口的一次 AX 漏读：CG 说它在屏上 → 保座位，哪怕有同 frame 的兄弟（两窗重叠是合法场景）。
+        let v = TabMergeDecision.verdict(
+            candidateIsOnScreen: true, candidateCGBounds: mergedFrame, candidateSeatBounds: mergedFrame,
+            axPresentSeats: [sibling(cg: 21637, bounds: mergedFrame)], frameKey: fk
+        )
+        XCTAssertEqual(v, .retain)
+    }
+
+    func testNoCoFramedVisibleSiblingRetains() {
+        // 离屏 + 没有同 frame 的可见兄弟：可能是关窗后赖在 CG（走 tombstone）或别的，不在这里判。
+        let v = TabMergeDecision.verdict(
+            candidateIsOnScreen: false, candidateCGBounds: oldFrame, candidateSeatBounds: oldFrame,
+            axPresentSeats: [sibling(cg: 21637, bounds: mergedFrame)], frameKey: fk
+        )
+        XCTAssertEqual(v, .retain)
+    }
+
+    func testMinimizedSiblingDoesNotOwn() {
+        // 同 frame 的兄弟自己是 min=true（最小化爆发中的标签）→ 不算可见归属，保守保座位。
+        let v = TabMergeDecision.verdict(
+            candidateIsOnScreen: false, candidateCGBounds: mergedFrame, candidateSeatBounds: mergedFrame,
+            axPresentSeats: [sibling(cg: 21637, bounds: mergedFrame, min: true)], frameKey: fk
+        )
+        XCTAssertEqual(v, .retain)
+    }
+
+    func testAmbiguousOwnersReleaseWithoutLearning() {
+        let v = TabMergeDecision.verdict(
+            candidateIsOnScreen: false, candidateCGBounds: mergedFrame, candidateSeatBounds: nil,
+            axPresentSeats: [sibling(cg: 1, bounds: mergedFrame), sibling(cg: 2, bounds: mergedFrame)], frameKey: fk
+        )
+        XCTAssertEqual(v, .release(ownerActiveCgID: nil))
+    }
+
+    func testFallsBackToSeatBoundsWhenCGHasNoRect() {
+        let v = TabMergeDecision.verdict(
+            candidateIsOnScreen: false, candidateCGBounds: nil, candidateSeatBounds: mergedFrame,
+            axPresentSeats: [sibling(cg: 21637, bounds: mergedFrame)], frameKey: fk
+        )
+        XCTAssertEqual(v, .release(ownerActiveCgID: 21637))
+    }
+
+    func testNoBoundsAtAllRetains() {
+        let v = TabMergeDecision.verdict(
+            candidateIsOnScreen: false, candidateCGBounds: nil, candidateSeatBounds: nil,
+            axPresentSeats: [sibling(cg: 21637, bounds: mergedFrame)], frameKey: fk
+        )
+        XCTAssertEqual(v, .retain)
+    }
+}

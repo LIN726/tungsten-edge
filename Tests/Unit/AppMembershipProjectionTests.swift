@@ -34,14 +34,15 @@ final class AppMembershipProjectionTests: XCTestCase {
         XCTAssertEqual(result, ["b", "a", "c"])
     }
 
-    func testDrawerPreviewLimitsTo9() {
+    func testDrawerPreviewHonorsLimit() {
         let drawerIDs = (0..<15).map { "app\($0)" }
         let result = AppMembershipProjection.drawerPreview(
             drawerIDs: drawerIDs,
             keptIDs: drawerIDs,
-            runningIDs: []
+            runningIDs: [],
+            limit: 4
         )
-        XCTAssertEqual(result.count, 9)
+        XCTAssertEqual(result.count, 4)
         XCTAssertEqual(result.first, "app0")
     }
 

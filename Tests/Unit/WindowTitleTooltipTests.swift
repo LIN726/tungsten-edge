@@ -1,6 +1,9 @@
 import AppKit
 import XCTest
 
+/// Continuous bar height: the two clamps plus the native baseline stand in for the old tiers.
+let sampleDockHeights: [DockPanelHeight] = [40, 54, 80].map { DockPanelHeight(clamping: $0) }
+
 final class WindowTitleTooltipTests: XCTestCase {
     func testFontUsesRenderedSizeRules() {
         XCTAssertEqual(WindowTitleTextMetrics.font(scale: 0.5).pointSize, 10)
@@ -26,7 +29,7 @@ final class WindowTitleTooltipTests: XCTestCase {
         // 条内标题宽度随任务条缩放，截断判定必须用同一个宽度——两处各写死 140 就会出现
         // 「看着截断了却不弹 tooltip」（或反之）。这一条只管**条内**那段文字；
         // 气泡自己的缩放锁在 `testMediumTierKeepsTheNativePixelsAndOtherTiersScaleWholesale`。
-        for tier in DockSize.allCases {
+        for tier in sampleDockHeights {
             XCTAssertEqual(WindowTitleTextMetrics.maximumWidth(for: tier.scale),
                            WindowTitleTextMetrics.maximumWidth * tier.scale, accuracy: 0.001)
         }
@@ -46,7 +49,7 @@ final class WindowTitleTooltipTests: XCTestCase {
 /// 解方程得来的 `pillHoverShift = 3s - 1 - Hs/2` 之类）。**那个类型和它的整组测试随功能
 /// 一起删除了，不要按旧公式恢复。**
 final class ChipHoverGeometryTests: XCTestCase {
-    private let tiers: [CGFloat] = DockSize.allCases.map(\.scale)
+    private let tiers: [CGFloat] = sampleDockHeights.map(\.scale)
 
     func testHoverDoesNotMoveAnyGeometry() {
         for scale in tiers {
@@ -83,6 +86,30 @@ final class ChipHoverGeometryTests: XCTestCase {
     }
 }
 
+/// 标签变长变短的曲线：条内与面板底板共用同一条贝塞尔，调参字符串解析错了要静默落回默认。
+final class LabelWidthAnimationTests: XCTestCase {
+    func testDefaultCurveIsAValidBezier() {
+        let c = LabelWidthAnimation.defaultCurve
+        XCTAssertGreaterThan(c.duration, 0)
+        XCTAssertTrue((0...1).contains(c.c1x))
+        XCTAssertTrue((0...1).contains(c.c2x))
+    }
+
+    func testParsesTheOverrideString() {
+        XCTAssertEqual(LabelWidthAnimation.parse("300, 0.25, 0.1, 0.25, 1"),
+                       LabelWidthAnimation.Curve(duration: 0.3, c1x: 0.25, c1y: 0.1, c2x: 0.25, c2y: 1))
+    }
+
+    func testRejectsMalformedOverrides() {
+        XCTAssertNil(LabelWidthAnimation.parse(nil))
+        XCTAssertNil(LabelWidthAnimation.parse(""))
+        XCTAssertNil(LabelWidthAnimation.parse("300,0.25,0.1,0.25"))         // 少一项
+        XCTAssertNil(LabelWidthAnimation.parse("0,0.25,0.1,0.25,1"))         // 时长非正
+        XCTAssertNil(LabelWidthAnimation.parse("300,1.5,0.1,0.25,1"))        // 控制点 x 越界
+        XCTAssertNil(LabelWidthAnimation.parse("300,a,0.1,0.25,1"))          // 非数字
+    }
+}
+
 /// 探针改量卡片矩形之后，tooltip 的锚点契约（pill rect）靠这组常量推出来，
 /// 所以推导必须与渲染用的是同一份数值。
 final class ChipPillMetricsTests: XCTestCase {
@@ -93,6 +120,25 @@ final class ChipPillMetricsTests: XCTestCase {
                              WindowTitleTextMetrics.maximumWidth(for: scale))
         let expected = (2 * 10 + 22 + 6) * scale + ceil(titleWidth)
         XCTAssertEqual(ChipPillMetrics.width(title: title, scale: scale), expected, accuracy: 0.001)
+    }
+
+    /// 标签盒宽度是渲染与推导的公共来源：向上取整的受限标题宽，`width` 只在它外面加常量。
+    func testLabelWidthIsTheCeiledCappedIntrinsicWidth() {
+        let title = "psd-文件"
+        let long = String(repeating: "very-long-window-title-", count: 20)
+        for scale in [CGFloat(0.85), 1, 1.15, 1.3] {
+            let intrinsic = WindowTitleTextMetrics.intrinsicWidth(of: title, scale: scale)
+            XCTAssertEqual(ChipPillMetrics.labelWidth(title: title, scale: scale),
+                           ceil(min(intrinsic, WindowTitleTextMetrics.maximumWidth(for: scale))), accuracy: 0.001)
+            XCTAssertEqual(ChipPillMetrics.labelWidth(title: long, scale: scale),
+                           ceil(WindowTitleTextMetrics.maximumWidth(for: scale)), accuracy: 0.001)
+            XCTAssertFalse(ChipPillMetrics.labelTruncates(title: title, scale: scale))
+            XCTAssertTrue(ChipPillMetrics.labelTruncates(title: long, scale: scale))
+            XCTAssertEqual(ChipPillMetrics.width(title: long, scale: scale)
+                               - ChipPillMetrics.width(title: title, scale: scale),
+                           ChipPillMetrics.labelWidth(title: long, scale: scale)
+                               - ChipPillMetrics.labelWidth(title: title, scale: scale), accuracy: 0.001)
+        }
     }
 
     func testWidthIsCappedByTheTitleMaximum() {
@@ -109,7 +155,7 @@ final class ChipPillMetricsTests: XCTestCase {
     /// 封顶规则在 40pt 卡上算出 1.15，被 `quietHoverScale` 上限截回 1.10 ——
     /// 收敛只该咬到宽到会挤的卡。四种图标卡（窗口卡 / kept / 消息区 / 中转格）都是这个宽度。
     func testIconCardKeepsTheAcceptedFullScale() {
-        for tier in DockSize.allCases {
+        for tier in sampleDockHeights {
             let width = ChipPillMetrics.cardWidth * tier.scale
             XCTAssertEqual(
                 ChipPillMetrics.quietHoverScale(forCardWidth: width, scale: tier.scale),
@@ -122,7 +168,7 @@ final class ChipPillMetricsTests: XCTestCase {
     /// 任何卡宽下，每侧向外长出的量都不超预算——这才是「不再挤」的直接判据。
     /// （倍数本身是多少无所谓，用户看见的是边缘位移。）
     func testNoCardGrowsBeyondTheEdgeBudget() {
-        for tier in DockSize.allCases {
+        for tier in sampleDockHeights {
             let budget = ChipPillMetrics.quietHoverEdgeBudget * tier.scale
             for base in [40, 60, 96, 140, 168.5, 196, 400] as [CGFloat] {
                 let width = base * tier.scale
@@ -159,7 +205,7 @@ final class ChipPillMetricsTests: XCTestCase {
         XCTAssertEqual(ChipPillMetrics.badgeHorizontalPadding, 5)
         XCTAssertEqual(ChipPillMetrics.badgeTopOffset, 5)
         // 中档 scale 恒为 1，所以「乘 scale」在中档就是原值——这条同时锁住那个恒等式。
-        XCTAssertEqual(DockSize.medium.scale, 1.0, accuracy: 0.0000001)
+        XCTAssertEqual(DockPanelHeight.native.scale, 1.0, accuracy: 0.0000001)
     }
 
     /// 宽度为 0（还没量到）不能算出 NaN / 无穷大。
@@ -324,14 +370,14 @@ final class ScreenRectReaderTests: XCTestCase {
 
     /// 气泡随任务条档位缩放（owner 2026-08-17），但**中档必须一个像素不动**。
     ///
-    /// 这条同时是那个分母陷阱的回归锁：系数得用 `DockSize.scale`（已按中档归一），
+    /// 这条同时是那个分母陷阱的回归锁：系数得用 `DockPanelHeight.scale`（已按 54pt 归一），
     /// 中档恒等于 1.0。若谁改成「条高 ÷ 某个字面量」，中档立刻不再是 1，签收过的原生像素就被改掉。
     func testMediumTierKeepsTheNativePixelsAndOtherTiersScaleWholesale() {
-        XCTAssertEqual(DockSize.medium.scale, 1.0, accuracy: 0.0000001)
-        let medium = WindowTitleTooltipStyle(scale: DockSize.medium.scale)
+        XCTAssertEqual(DockPanelHeight.native.scale, 1.0, accuracy: 0.0000001)
+        let medium = WindowTitleTooltipStyle(scale: DockPanelHeight.native.scale)
         XCTAssertEqual(medium, WindowTitleTooltipStyle.native)
 
-        for tier in DockSize.allCases {
+        for tier in sampleDockHeights {
             let style = WindowTitleTooltipStyle(scale: tier.scale)
             XCTAssertEqual(style.height, 26 * tier.scale, accuracy: 0.001)
             XCTAssertEqual(style.fontSize, 14 * tier.scale, accuracy: 0.001)
@@ -344,7 +390,7 @@ final class ScreenRectReaderTests: XCTestCase {
 
     /// 尾巴那顶圆帽在任意档位都还在（直边外推必须过冲真实尖端）。
     func testTailStaysRoundedAtEveryTier() {
-        for tier in DockSize.allCases {
+        for tier in sampleDockHeights {
             let style = WindowTitleTooltipStyle(scale: tier.scale)
             let slope = (style.tailShoulderHalfWidth - style.tailTipHalfWidth)
                 / (style.tailTipDepth - style.tailShoulderDepth)
