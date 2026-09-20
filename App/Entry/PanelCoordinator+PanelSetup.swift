@@ -38,6 +38,9 @@ extension PanelCoordinator {
             onShelfPopupToggle: { [weak self] anchorRect in
                 self?.toggleShelfPopup(anchorVisibleRect: anchorRect)
             },
+            onWindowTabPopupToggle: { [weak self] bundleID, title, anchorRect, targetPID in
+                self?.toggleWindowTabPopup(bundleID: bundleID, windowTitle: title, anchorVisibleRect: anchorRect, targetPID: targetPID)
+            },
             onAddFolder: { [weak self] in self?.onAddFolder() },
             onMoveExternalFiles: { [weak self] urls, path in
                 self?.moveExternalFiles(urls, into: path)

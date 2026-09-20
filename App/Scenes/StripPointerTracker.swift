@@ -34,20 +34,24 @@ final class PointerBox {
 struct StripPointerTracker: NSViewRepresentable {
     /// 屏幕坐标（bottom-left）；`nil` = 指针离开了任务条。
     let onMove: (CGPoint?) -> Void
+    var onCommandKey: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> TrackingView {
         let view = TrackingView()
         view.onMove = onMove
+        view.onCommandKey = onCommandKey
         return view
     }
 
     func updateNSView(_ nsView: TrackingView, context: Context) {
         nsView.onMove = onMove   // 刷新闭包，捕获最新 @State 写入口
+        nsView.onCommandKey = onCommandKey
     }
 
     static func dismantleNSView(_ nsView: TrackingView, coordinator: ()) {
         nsView.stopPolling()
         nsView.onMove = nil
+        nsView.onCommandKey = nil
     }
 
     final class TrackingView: NSView {
@@ -57,9 +61,11 @@ struct StripPointerTracker: NSViewRepresentable {
             DebugSwitch.stripHoverPoll.isEnabled(in: ProcessInfo.processInfo.environment)
 
         var onMove: ((CGPoint?) -> Void)?
+        var onCommandKey: (() -> Void)?
         private var area: NSTrackingArea?
         private var poll: Timer?
         private var lastReported: CGPoint?
+        private var wasCommandPressed = false
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -116,6 +122,7 @@ struct StripPointerTracker: NSViewRepresentable {
 
         private func leave() {
             stopPolling()
+            wasCommandPressed = false
             guard lastReported != nil else { return }
             lastReported = nil
             onMove?(nil)
@@ -131,6 +138,14 @@ struct StripPointerTracker: NSViewRepresentable {
                 leave()
                 return
             }
+
+            // 实时感知 Command 键被敲击（通过全局静态属性读取，100% 独立于系统全局事件监听权限）
+            let isCommand = NSEvent.modifierFlags.contains(.command)
+            if isCommand && !wasCommandPressed {
+                onCommandKey?()
+            }
+            wasCommandPressed = isCommand
+
             report(location)
         }
 

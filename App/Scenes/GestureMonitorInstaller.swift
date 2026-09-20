@@ -11,15 +11,18 @@ import UniformTypeIdentifiers
 // spike（2026-07-09）已验证重击不触发左键动作，无冲突。
 struct GestureMonitorInstaller: NSViewRepresentable {
     let onGesture: (CGPoint) -> Void
+    var onCommandKey: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> NSView {
         context.coordinator.onGesture = onGesture
+        context.coordinator.onCommandKey = onCommandKey
         context.coordinator.start()
         return NSView()
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.onGesture = onGesture   // 刷新闭包，捕获最新 chip 帧
+        context.coordinator.onCommandKey = onCommandKey
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -30,9 +33,13 @@ struct GestureMonitorInstaller: NSViewRepresentable {
 
     final class Coordinator {
         var onGesture: ((CGPoint) -> Void)?
+        var onCommandKey: (() -> Void)?
         private var pressureMonitor: Any?
         private var middleMonitor: Any?
+        private var localFlagsMonitor: Any?
+        private var globalFlagsMonitor: Any?
         private var lastStage = 0
+        private var wasCommandPressed = false
 
         func start() {
             pressureMonitor = NSEvent.addLocalMonitorForEvents(matching: .pressure) { [weak self] e in
@@ -45,13 +52,34 @@ struct GestureMonitorInstaller: NSViewRepresentable {
                 if e.buttonNumber == 2 { self?.onGesture?(NSEvent.mouseLocation) }
                 return e
             }
+
+            let handleFlags: (NSEvent.ModifierFlags) -> Void = { [weak self] flags in
+                guard let self else { return }
+                let isCommand = flags.contains(.command)
+                if isCommand && !self.wasCommandPressed {
+                    self.onCommandKey?()
+                }
+                self.wasCommandPressed = isCommand
+            }
+
+            localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { e in
+                handleFlags(e.modifierFlags)
+                return e
+            }
+            globalFlagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { e in
+                handleFlags(e.modifierFlags)
+            }
         }
 
         func stop() {
             if let m = pressureMonitor { NSEvent.removeMonitor(m) }
             if let m = middleMonitor { NSEvent.removeMonitor(m) }
+            if let m = localFlagsMonitor { NSEvent.removeMonitor(m) }
+            if let m = globalFlagsMonitor { NSEvent.removeMonitor(m) }
             pressureMonitor = nil
             middleMonitor = nil
+            localFlagsMonitor = nil
+            globalFlagsMonitor = nil
         }
     }
 }

@@ -111,4 +111,45 @@ extension DockStripView {
             minimumGapWidth: StripContextMenuZone.defaultMinimumGapWidth * dockScale
         )
     }
+
+    /// 当悬停在支持的浏览器窗口卡片上按下 Command 键时，呼出该窗口的 Tab 列表浮层。
+    func handleCommandKeyPress(projection: StripProjection) {
+        let pointer = pointerBox.value ?? NSEvent.mouseLocation
+        let targetID: String? = hoveredEntryID ?? {
+            guard stripRootScreenRect != .zero else { return nil }
+            let point = CGPoint(x: pointer.x - stripRootScreenRect.minX, y: stripRootScreenRect.maxY - pointer.y)
+            return StripHoverResolution.chip(
+                at: point,
+                frames: stripHoverFrames,
+                gapBridge: StripHoverResolution.defaultGapBridge * dockScale
+            )
+        }()
+
+        guard let id = targetID,
+              let entry = projection.entries.first(where: { $0.id == id }) else {
+            return
+        }
+
+        let anchorRect: CGRect
+        if let frame = stripHoverFrames[id] ?? chipFrames[id], stripRootScreenRect != .zero {
+            anchorRect = stripFrameToScreen(frame)
+        } else {
+            anchorRect = CGRect(x: pointer.x - 20, y: pointer.y - 10, width: 40, height: 20)
+        }
+
+        switch entry {
+        case let .window(item):
+            guard let bundleID = item.bundleIdentifier,
+                  BrowserTabService.shared.isSupportedBrowser(bundleID: bundleID) else { return }
+            onWindowTabPopupToggle(bundleID, item.title, anchorRect, item.pid)
+        case let .messagingApp(bundleID, main):
+            guard BrowserTabService.shared.isSupportedBrowser(bundleID: bundleID) else { return }
+            onWindowTabPopupToggle(bundleID, main?.title ?? "", anchorRect, main?.pid)
+        case let .keptApp(bundleID):
+            guard BrowserTabService.shared.isSupportedBrowser(bundleID: bundleID) else { return }
+            onWindowTabPopupToggle(bundleID, "", anchorRect, nil)
+        default:
+            break
+        }
+    }
 }

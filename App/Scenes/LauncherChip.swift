@@ -225,6 +225,10 @@ struct LauncherChip: View {
                 } else {
                     AppMenuBuilder.appendRecentDocuments(to: menu, bundleID: bundleID)
                 }
+                if isRunning {
+                    AppMenuBuilder.appendMediaControls(to: menu, bundleID: bundleID)
+                    AppMenuBuilder.appendBrowserShortcuts(to: menu, bundleID: bundleID)
+                }
             case .show:
                 if !runningApps.isEmpty {
                     menu.addItem(ClosureMenuItem(String(localized: "Show")) {

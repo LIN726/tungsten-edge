@@ -55,6 +55,8 @@ struct DockStripView: View {
     var onFolderPopupToggle: (String, CGRect) -> Void = { _, _ in }
     /// 中转格点击 → 中转弹窗 toggle（chip 可视矩形·屏幕坐标）。PanelCoordinator 注入。
     var onShelfPopupToggle: (CGRect) -> Void = { _ in }
+    /// 窗口 Tab 点击 Command → 弹窗 toggle（bundleID + windowTitle + chip 可视矩形·屏幕坐标 + 目标 PID）。
+    var onWindowTabPopupToggle: (String, String, CGRect, pid_t?) -> Void = { _, _, _, _ in }
     /// 「添加文件夹…」统一入口（NSOpenPanel 归 AppDelegate 管）。
     var onAddFolder: () -> Void = {}
     /// 外部文件命中固定文件夹 chip 后，上抛给 composition 层在后台执行搬运。
@@ -271,13 +273,21 @@ struct DockStripView: View {
         // **整条一块跟踪区**：指针每动一次就上报一次屏幕坐标，落在谁身上由纯判定
         // `StripHoverResolution` 算。每张卡各自挂 `.onHover` 的老做法漏格又带方向性，
         // 成因与实测数据见那个类型的注释。
-        .background(StripPointerTracker { pointer in
-            pointerBox.value = pointer
-            refreshHoveredEntry(frames: stripHoverFrames, origin: stripRootScreenRect)
-            HoverTrace.pointer(x: pointer?.x ?? -1, chip: hoveredEntryID)
-        })
-        // 重击(触控板)/中键(鼠标) → 内容预览：本地事件监视器 → 命中反查（handleGesturePreview）。
-        .background(GestureMonitorInstaller(onGesture: { handleGesturePreview(atScreen: $0) }))
+        .background(StripPointerTracker(
+            onMove: { pointer in
+                pointerBox.value = pointer
+                refreshHoveredEntry(frames: stripHoverFrames, origin: stripRootScreenRect)
+                HoverTrace.pointer(x: pointer?.x ?? -1, chip: hoveredEntryID)
+            },
+            onCommandKey: {
+                handleCommandKeyPress(projection: projection)
+            }
+        ))
+        // 重击(触控板)/中键(鼠标) → 内容预览；按下 Command → 窗口 Tab 弹窗
+        .background(GestureMonitorInstaller(
+            onGesture: { handleGesturePreview(atScreen: $0) },
+            onCommandKey: { handleCommandKeyPress(projection: projection) }
+        ))
         // 落地阴影住在窗口的 20pt 透明边里，玻璃态同样走这条 —— 曾经试过改画到背景窗口的
         // 图层上，但那个窗口的 frame 正好等于底板，阴影画在窗口外会被整个裁掉。
         .dockShadow(theme.stripShadow)
@@ -1189,7 +1199,19 @@ struct DockStripView: View {
                      showRunningDot: true,
                      pulseNonce: chipPulseNonces[item.id] ?? 0,
                      badgeText: windowBadge,
-                     slotHidden: projection.draggingID == item.id)
+                     slotHidden: projection.draggingID == item.id,
+                     onCommandTap: {
+                         guard let bid = item.bundleIdentifier,
+                               BrowserTabService.shared.isSupportedBrowser(bundleID: bid) else { return }
+                         let anchorRect: CGRect
+                         if let frame = stripHoverFrames[item.id] ?? chipFrames[item.id], stripRootScreenRect != .zero {
+                             anchorRect = stripFrameToScreen(frame)
+                         } else {
+                             let mouse = NSEvent.mouseLocation
+                             anchorRect = CGRect(x: mouse.x - 20, y: mouse.y - 10, width: 40, height: 20)
+                         }
+                         onWindowTabPopupToggle(bid, item.title, anchorRect, item.pid)
+                     })
         case .divider:
             Rectangle()
                 .fill(theme.zoneDivider.color)
@@ -1246,7 +1268,18 @@ struct DockStripView: View {
                              showsWindowListInMenu: true,
                              iconOnly: true, showRunningDot: true,
                              badgeText: badge,
-                             slotHidden: draggingMessagingBundleID == bid)
+                             slotHidden: draggingMessagingBundleID == bid,
+                             onCommandTap: {
+                                 guard BrowserTabService.shared.isSupportedBrowser(bundleID: bid) else { return }
+                                 let anchorRect: CGRect
+                                 if let frame = messagingChipFrames[bid] ?? stripHoverFrames[main.id], stripRootScreenRect != .zero {
+                                     anchorRect = stripFrameToScreen(frame)
+                                 } else {
+                                     let mouse = NSEvent.mouseLocation
+                                     anchorRect = CGRect(x: mouse.x - 20, y: mouse.y - 10, width: 40, height: 20)
+                                 }
+                                 onWindowTabPopupToggle(bid, main.title, anchorRect, main.pid)
+                             })
                 } else {
                     // 无主窗两态：运行中（关窗/常驻）→ 点击 reopen 主窗；未运行（图标下方无运行点）→ 点击启动。
                     // 统一模型下消息应用也有「在程序坞中保留」勾选（与「取消标记」并存），由纯投影决定。

@@ -446,6 +446,9 @@
 		B10000000000000000000205 /* StripSharedAffixTrimTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000204 /* StripSharedAffixTrimTests.swift */; };
 		B10000000000000000000147 /* StripPointerBoxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000146 /* StripPointerBoxTests.swift */; };
 		B1000000000000000000013D /* AppTrackerDisplayAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000013C /* AppTrackerDisplayAttributionTests.swift */; };
+		A000000000000000000011B0 /* BrowserTabService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000FB0 /* BrowserTabService.swift */; };
+		A000000000000000000011B1 /* MediaControlService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000FB1 /* MediaControlService.swift */; };
+		A0000000000000000000924B /* WindowTabPopupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000924A /* WindowTabPopupView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -763,6 +766,9 @@
 		B75000000000000000000013 /* WelcomeGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeGuideView.swift; sourceTree = "<group>"; };
 		B75000000000000000000023 /* WelcomeGuideDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeGuideDecisionTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000059 /* macos-dock-cc-v2Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "macos-dock-cc-v2Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000FB0 /* BrowserTabService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserTabService.swift; sourceTree = "<group>"; };
+		A00000000000000000000FB1 /* MediaControlService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaControlService.swift; sourceTree = "<group>"; };
+		A0000000000000000000924A /* WindowTabPopupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTabPopupView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -925,6 +931,7 @@
 				A000000000000000000019D3 /* LauncherMembershipItem.swift */,
 				A000000000000000000019C1 /* AppMenuFragments.swift */,
 				A00000000000000000009240 /* FolderGridPopupView.swift */,
+				A0000000000000000000924A /* WindowTabPopupView.swift */,
 				A00000000000000000009250 /* PinnedFolderChip.swift */,
 				A00000000000000000009320 /* ShelfChip.swift */,
 				A00000000000000000009AA0 /* ShelfTrayArt.swift */,
@@ -1087,8 +1094,26 @@
 				A00000000000000000000033 /* Finder */,
 				A00000000000000000000034 /* Permissions */,
 				A00000000000000000000070 /* AppTracking */,
+				E90000000000000000000088 /* Browser */,
+				E90000000000000000000089 /* Media */,
 			);
 			path = Platform;
+			sourceTree = "<group>";
+		};
+		E90000000000000000000088 /* Browser */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000FB0 /* BrowserTabService.swift */,
+			);
+			path = Browser;
+			sourceTree = "<group>";
+		};
+		E90000000000000000000089 /* Media */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000FB1 /* MediaControlService.swift */,
+			);
+			path = Media;
 			sourceTree = "<group>";
 		};
 		A00000000000000000000070 /* AppTracking */ = {
@@ -1460,6 +1485,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 				files = (
+				A000000000000000000011B0 /* BrowserTabService.swift in Sources */,
+				A000000000000000000011B1 /* MediaControlService.swift in Sources */,
+				A0000000000000000000924B /* WindowTabPopupView.swift in Sources */,
 				E90000000000000000001030 /* DockStripView+ExternalDrop.swift in Sources */,
 				E90000000000000000001031 /* DockStripView+Projection.swift in Sources */,
 				E90000000000000000001032 /* DockStripView+Hover.swift in Sources */,

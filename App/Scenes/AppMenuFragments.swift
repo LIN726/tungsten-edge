@@ -271,4 +271,39 @@ enum AppMenuBuilder {
             }
         }
     }
+
+    /// 媒体类应用（Apple Music、网易云音乐、Spotify、QQ音乐）的专属播放控制菜单
+    static func appendMediaControls(to menu: NSMenu, bundleID: String?) {
+        guard let bid = bundleID, MediaControlService.shared.isMediaApp(bundleID: bid) else { return }
+
+        // 若当前有正在播放/暂存的曲目信息，置顶展示曲名与歌手
+        if let info = MediaControlService.shared.currentTrackInfo(for: bid), !info.title.isEmpty {
+            let label = info.artist.isEmpty ? info.title : "\(info.title) - \(info.artist)"
+            let headerText = String(format: String(localized: "Now Playing: %@"), label)
+            let header = NSMenuItem(title: headerText, action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+        }
+
+        let isPlaying = MediaControlService.shared.currentTrackInfo(for: bid)?.isPlaying ?? false
+        let playPauseTitle = isPlaying ? String(localized: "Pause") : String(localized: "Play")
+        menu.addItem(ClosureMenuItem(playPauseTitle) {
+            MediaControlService.shared.togglePlayPause(bundleID: bid)
+        })
+        menu.addItem(ClosureMenuItem(String(localized: "Next Track")) {
+            MediaControlService.shared.nextTrack(bundleID: bid)
+        })
+        menu.addItem(ClosureMenuItem(String(localized: "Previous Track")) {
+            MediaControlService.shared.previousTrack(bundleID: bid)
+        })
+        menu.addItem(.separator())
+    }
+
+    /// 浏览器类应用专属快捷项（如新建无痕/隐私窗口）
+    static func appendBrowserShortcuts(to menu: NSMenu, bundleID: String?) {
+        guard let bid = bundleID, BrowserTabService.shared.isSupportedBrowser(bundleID: bid) else { return }
+        menu.addItem(ClosureMenuItem(String(localized: "New Private Window")) {
+            MediaControlService.shared.openPrivateWindow(bundleID: bid)
+        })
+    }
 }

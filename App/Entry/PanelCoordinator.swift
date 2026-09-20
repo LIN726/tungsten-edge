@@ -126,12 +126,19 @@ final class PanelCoordinator: NSObject {
     enum PopupContent: Equatable {
         case folder(path: String)
         case shelf
+        case windowTabs(bundleID: String, windowTitle: String)
     }
     var folderPopupPanel: NSPanel?
     /// 弹窗真正承载 SwiftUI 的 hosting view（contentView 是普通 NSView 容器,fittingSize 读这个）。
     var folderPopupContentHost: NSView?
     var popupLocalMonitor: Any?
     var popupGlobalMonitor: Any?
+    var popupPollTimer: Timer?
+    var wasCommandPressedInPopup: Bool = false
+    var wasMouseDownInPopup: Bool = false
+    var mouseExitedPopupAt: TimeInterval?
+    var lastTabToggleTime: TimeInterval = 0
+    var isFetchingTabs: Bool = false
     var lastPopupTargetFrame: NSRect = .zero
     /// 弹窗锚点（chip 可视矩形,屏幕坐标）。click-away 判定要排除它——监视器在 mouseDown 关、
     /// chip 的 onTapGesture 在 mouseUp 又开,不排除锚点则同 chip 点击永远无法收合。

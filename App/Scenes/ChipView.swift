@@ -50,6 +50,8 @@ struct ChipView: View {
     /// 和以 1.0 停稳的载体差一截（owner 2026-08-19「落位抖动」的成分之一）。卡藏着时清，
     /// 显形时必是 1.0。默认 `false` 是正确的省略语义（不拖动的卡不需要它），同 `badgeText`。
     var slotHidden: Bool = false
+    /// 按住 Command 点击或右键菜单触发的窗口 Tab 列表弹窗
+    var onCommandTap: (() -> Void)? = nil
     /// 点击确认脉冲：与状态无关的按压回弹。激活「已可见」窗口在亮/暗轴上零变化,
     /// 没有它就"毫无反应"（owner 2026-07-06）。纯视图层信号,永不喂 planner/frontmost 轴（AGENTS）。
     /// 声明式 .animation(value:) 驱动（LauncherChip 僵尸动画教训:禁 repeatForever+复位）。
@@ -183,7 +185,13 @@ struct ChipView: View {
         .contentShape(Rectangle())
         .onChange(of: isHovered) { recordHoverEvent($0) }
         .onTapGesture {
-            if let drawerTap { drawerTap() } else { runtime.toggle(windowID: item.actionWindowID) }
+            if NSEvent.modifierFlags.contains(.command), let onCommandTap {
+                onCommandTap()
+            } else if let drawerTap {
+                drawerTap()
+            } else {
+                runtime.toggle(windowID: item.actionWindowID)
+            }
         }
         // 按压跟着**按下**走，不再等 onTapGesture（那是鼠标抬起才触发的）。挂在 contentShape
         // 之后，命中区域与点击完全一致。
@@ -285,7 +293,13 @@ struct ChipView: View {
         .contentShape(Rectangle())
         .onChange(of: isHovered) { recordHoverEvent($0) }
         .onTapGesture {
-            if let drawerTap { drawerTap() } else { runtime.toggle(windowID: item.actionWindowID) }
+            if NSEvent.modifierFlags.contains(.command), let onCommandTap {
+                onCommandTap()
+            } else if let drawerTap {
+                drawerTap()
+            } else {
+                runtime.toggle(windowID: item.actionWindowID)
+            }
         }
         .chipPressGesture(
             isPressed: $isTapPressed,
@@ -348,8 +362,13 @@ struct ChipView: View {
         } else {
             AppMenuBuilder.appendRecentDocuments(to: menu, bundleID: bid)
         }
+        AppMenuBuilder.appendMediaControls(to: menu, bundleID: bid)
         if item.isAppLevelFallback {
             if isFinderChip { AppMenuBuilder.appendFinderItems(to: menu) }
+            if let bid, BrowserTabService.shared.isSupportedBrowser(bundleID: bid), let onCommandTap {
+                menu.addItem(ClosureMenuItem(String(localized: "View Tabs")) { onCommandTap() })
+            }
+            AppMenuBuilder.appendBrowserShortcuts(to: menu, bundleID: bid)
             if effectiveStatus == "hidden" {
                 menu.addItem(ClosureMenuItem(String(localized: "Show")) { runtime.activate(windowID: item.actionWindowID) })
             } else {
@@ -363,6 +382,10 @@ struct ChipView: View {
             }
         } else {
             if isFinderChip { AppMenuBuilder.appendFinderItems(to: menu) }
+            if let bid, BrowserTabService.shared.isSupportedBrowser(bundleID: bid), let onCommandTap {
+                menu.addItem(ClosureMenuItem(String(localized: "View Tabs")) { onCommandTap() })
+            }
+            AppMenuBuilder.appendBrowserShortcuts(to: menu, bundleID: bid)
             menu.addItem(ClosureMenuItem(String(localized: "New Window")) { runtime.newWindow(windowID: item.actionWindowID) })
             if effectiveStatus == "minimized" {
                 menu.addItem(ClosureMenuItem(String(localized: "Restore")) { runtime.activate(windowID: item.actionWindowID) })

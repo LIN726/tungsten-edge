@@ -74,6 +74,59 @@ extension PanelCoordinator {
         }
     }
 
+    /// 窗口 Tab 弹窗入口：同一应用再按 = 收起；换应用 = 原地切换；具备 250ms 防抖。
+    func toggleWindowTabPopup(bundleID: String, windowTitle: String, anchorVisibleRect: CGRect, targetPID: pid_t? = nil) {
+        let now = CACurrentMediaTime()
+        guard now - lastTabToggleTime > 0.25 else { return }
+        lastTabToggleTime = now
+
+        if folderPopupWantsOpen, case let .windowTabs(currentBid, _) = openPopupContent, currentBid == bundleID {
+            closeFolderPopup()
+            return
+        }
+
+        openWindowTabPopup(bundleID: bundleID, windowTitle: windowTitle, anchorVisibleRect: anchorVisibleRect, targetPID: targetPID)
+    }
+
+    private func openWindowTabPopup(bundleID: String, windowTitle: String, anchorVisibleRect: CGRect, targetPID: pid_t? = nil) {
+        guard !isFetchingTabs else { return }
+        isFetchingTabs = true
+
+        Task { @MainActor [weak self] in
+            defer { self?.isFetchingTabs = false }
+            guard let self else { return }
+            let tabs = await BrowserTabService.shared.fetchTabs(bundleID: bundleID, windowTitle: windowTitle, targetPID: targetPID)
+
+            self.presentPopup(
+                content: .windowTabs(bundleID: bundleID, windowTitle: windowTitle),
+                anchorVisibleRect: anchorVisibleRect
+            ) { [weak self] maxContentHeight in
+                NSHostingView(rootView: WindowTabPopupView(
+                    bundleID: bundleID,
+                    windowTitle: windowTitle,
+                    targetPID: targetPID,
+                    initialTabs: tabs,
+                    maxContentHeight: maxContentHeight,
+                    usesLiquidGlass: self?.usesLiquidGlass ?? false,
+                    onSelectTab: { [weak self] tab in
+                        Task {
+                            _ = await BrowserTabService.shared.activateTab(
+                                bundleID: bundleID,
+                                targetPID: tab.pid ?? targetPID,
+                                windowID: tab.windowID,
+                                tabIndex: tab.tabIndex
+                            )
+                        }
+                        self?.closeFolderPopup()
+                    },
+                    onClose: { [weak self] in
+                        self?.closeFolderPopup()
+                    }
+                ))
+            }
+        }
+    }
+
     private func openFolderPopup(path: String, anchorVisibleRect: CGRect) {
         let rootURL = URL(fileURLWithPath: path)
         let sortOrder = pinnedFolderStore.sortOrder(for: path)
@@ -202,6 +255,7 @@ extension PanelCoordinator {
             }
         }
         popupOpenedAt = Date()
+        startPopupWatchdog()
         // 弹出后复测 fittingSize（双重 defer 等 SwiftUI 布局完成）——同步量偏差时的兜底校正,瞬时。
         DispatchQueue.main.async { [weak self] in
             DispatchQueue.main.async { [weak self] in
@@ -326,6 +380,8 @@ extension PanelCoordinator {
     /// 可打断淡出关闭（同 closeDrawer）。immediately=true 用于换目标瞬切。
     func closeFolderPopup(immediately: Bool = false) {
         guard folderPopupWantsOpen else { return }
+        lastTabToggleTime = CACurrentMediaTime()
+        stopPopupWatchdog()
         folderPopupWantsOpen = false
         openPopupContent = nil
         setAutoHideInhibitor(.folderPopupOpen, active: false)
@@ -358,6 +414,79 @@ extension PanelCoordinator {
         guard !panel.frame.contains(mouse),
               !popupAnchorVisibleRect.insetBy(dx: -4, dy: -4).contains(mouse) else { return }
         closeFolderPopup()
+    }
+
+    // MARK: - 弹窗看门狗（免 TCC 权限的全域关闭保障）
+
+    private func startPopupWatchdog() {
+        stopPopupWatchdog()
+        wasCommandPressedInPopup = NSEvent.modifierFlags.contains(.command)
+        wasMouseDownInPopup = (NSEvent.pressedMouseButtons & 1) != 0
+        mouseExitedPopupAt = nil
+
+        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.tickPopupWatchdog()
+            }
+        }
+        popupPollTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopPopupWatchdog() {
+        popupPollTimer?.invalidate()
+        popupPollTimer = nil
+        wasCommandPressedInPopup = false
+        wasMouseDownInPopup = false
+        mouseExitedPopupAt = nil
+    }
+
+    private func tickPopupWatchdog() {
+        guard folderPopupWantsOpen, let panel = folderPopupPanel else {
+            stopPopupWatchdog()
+            return
+        }
+
+        // 1. 全局 Command 键感知：用户在屏幕任意位置按下 Command 键，无需鼠标停在卡片或弹窗上，即刻收起
+        let flags = NSEvent.modifierFlags
+        let isCmdDown = flags.contains(.command)
+        if isCmdDown && !wasCommandPressedInPopup {
+            wasCommandPressedInPopup = true
+            closeFolderPopup()
+            return
+        }
+        wasCommandPressedInPopup = isCmdDown
+
+        // 2. 全局点击外部区域感知：用户在屏幕任何外部区域（桌面、网页、其他窗口）点击鼠标左键，即刻收起
+        let mouseButtons = NSEvent.pressedMouseButtons
+        let isMouseDown = (mouseButtons & 1) != 0
+        if isMouseDown && !wasMouseDownInPopup {
+            dismissFolderPopupIfOutside()
+            if !folderPopupWantsOpen { return }
+        }
+        wasMouseDownInPopup = isMouseDown
+
+        // 3. 移出区域超时自动收起（针对 Window Tabs，鼠标离开弹窗及任务条区域超过 40pt 并停留超过 0.6 秒自动淡出）
+        if case .windowTabs = openPopupContent {
+            let mouseLocation = NSEvent.mouseLocation
+            let expandedPopup = panel.frame.insetBy(dx: -40, dy: -40)
+            let expandedDock = dockPanel?.frame.insetBy(dx: -40, dy: -40) ?? .zero
+            let isNear = expandedPopup.contains(mouseLocation) || expandedDock.contains(mouseLocation)
+
+            if isNear {
+                mouseExitedPopupAt = nil
+            } else {
+                let now = CACurrentMediaTime()
+                if let exitTime = mouseExitedPopupAt {
+                    if now - exitTime >= 0.6 {
+                        closeFolderPopup()
+                        return
+                    }
+                } else {
+                    mouseExitedPopupAt = now
+                }
+            }
+        }
     }
 
     /// 固定文件夹名单变化：同步封面 watcher、被移除文件夹的弹窗要关、任务条宽度重排。
