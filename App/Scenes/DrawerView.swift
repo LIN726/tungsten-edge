@@ -97,16 +97,6 @@ struct DrawerView: View {
     /// 隐藏判定同口径：同 bundle 所有进程都 hidden 才算 hidden。
     private func isHiddenInSnapshot(_ id: String) -> Bool { runningApplicationStore.isHidden(id) }
 
-    /// 运行区 = 收纳 + 在跑 + 不在启动门控期。
-    private var runningZoneIDs: [String] {
-        visibleMembers.filter { isRunning($0) && !isLaunchingWithoutWindow($0) }
-    }
-
-    /// 启动区 = 已 kept / messaging 且没在跑（或仍在启动门控期）的可见项。
-    private var launchZoneIDs: [String] {
-        visibleMembers.filter { !isRunning($0) || isLaunchingWithoutWindow($0) }
-    }
-
     // MARK: - Body
 
     var body: some View {
@@ -196,33 +186,20 @@ struct DrawerView: View {
     }
 
     /// 两区网格本体。`.background` 量自然高度喂滚动判定；每区按各自 ID 列表做动画——增删/换行/重排都平滑。
-    /// 任务条卡拖进抽屉是"即时转正成成员"（见 updateStripDropPreview），就是运行区多一个 id,无需占位格。
+    /// 单一统一网格：所有抽屉应用按顺序排列，运行态自然在图标下方显示小圆点，不产生多区割裂或空行。
     private var gridStack: some View {
-        let runningIDs = runningZoneIDs
-        let launchIDs = launchZoneIDs
-        let hasRunningZone = !runningIDs.isEmpty
+        let members = visibleMembers
         return VStack(alignment: .leading, spacing: 0) {
-            if runningIDs.isEmpty && launchIDs.isEmpty {
+            if members.isEmpty {
                 emptyHint
-            }
-            if hasRunningZone {
+            } else {
                 LazyVGrid(columns: columns, spacing: 8) {
-                    ForEach(Array(runningIDs.enumerated()), id: \.element) { index, id in 
-                        drawerChip(id, index: index, zone: runningIDs, running: true) 
+                    ForEach(Array(members.enumerated()), id: \.element) { index, id in
+                        let running = isRunning(id) && !isLaunchingWithoutWindow(id)
+                        drawerChip(id, index: index, zone: members, running: running)
                     }
                 }
-                .animation(.easeInOut(duration: DrawerAnimation.duration), value: runningIDs)
-            }
-            if !launchIDs.isEmpty {
-                if hasRunningZone {
-                    Spacer().frame(height: 12)
-                }
-                LazyVGrid(columns: columns, spacing: 8) {
-                    ForEach(Array(launchIDs.enumerated()), id: \.element) { index, id in 
-                        drawerChip(id, index: index, zone: launchIDs, running: false) 
-                    }
-                }
-                .animation(.easeInOut(duration: DrawerAnimation.duration), value: launchIDs)
+                .animation(.easeInOut(duration: DrawerAnimation.duration), value: members)
             }
         }
         .padding(12)
@@ -416,18 +393,17 @@ struct DrawerView: View {
     }
 
     /// 抽屉内重排：按 DragController 全局鼠标位置驱动（替代会被取消的逐图标手势）。把屏幕坐标映回 `"drawer"`
-    /// 空间,命中同区目标后让位。抽屉内重排不改成员数 → 抽屉不缩放 → 用实时 drawerRootScreenRect 映射即可。
+    /// 空间,命中目标后让位。抽屉内重排不改成员数 → 抽屉不缩放 → 用实时 drawerRootScreenRect 映射即可。
     private func updateDrawerReorder() {
         guard isDrawerOpen(), let p = dragController.draggingPayload, p.source == .drawer,
               !dragController.isOverDropZone,            // 光标已在任务条上 = 移回,不重排
               drawerRootScreenRect != .zero else { return }
         let pt = CGPoint(x: dragController.globalLocation.x - drawerRootScreenRect.minX,
                          y: drawerRootScreenRect.maxY - dragController.globalLocation.y)   // 屏幕(左下) → drawer(左上)
-        let zone = runningZoneIDs.contains(p.id) ? runningZoneIDs : launchZoneIDs
-        reorderTarget(at: pt, dragging: p.id, zone: zone)
+        reorderTarget(at: pt, dragging: p.id, zone: visibleMembers)
     }
 
-    /// 抽屉内排序：只在**同一区**内命中落点（Codex 二审 ⑤——跨区改顺序会"偷偷"改、状态变才显现）。
+    /// 抽屉内排序：命中落点让位。
     private func reorderTarget(at point: CGPoint, dragging id: String, zone: [String]) {
         // 命中 frame 外扩一圈(覆盖 8pt 格间空隙)→ 判定区更大、好定位(owner 2026-06-21 反馈太小)。
         // 按 zone 顺序遍历:dict.first(where:) 顺序不定,外扩后相邻格会重叠 → 必须有序取最左。
@@ -482,8 +458,7 @@ struct DrawerView: View {
         if converted, let p = dc.draggingPayload, p.source == .drawer {
             guard convertedCarrierID != p.id else { return }
             convertedCarrierID = p.id
-            // 刚 add 进成员的那一轮两个区列表可能还没算上它：不在启动区就按进程状态判。
-            let running = runningZoneIDs.contains(p.id) || (!launchZoneIDs.contains(p.id) && isRunning(p.id))
+            let running = isRunning(p.id) && !isLaunchingWithoutWindow(p.id)
             dc.setCarrierSnapshot(
                 ChipSnapshotter.snapshot(of: drawerChipContent(p.id, running: running),
                                          screenPoint: CGPoint(x: drawerRootScreenRect.midX, y: drawerRootScreenRect.midY)),
