@@ -97,4 +97,14 @@ final class FolderDropPlanTests: XCTestCase {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
+
+    func testFolderGridDragItemProviderPreservesFileNameAndFileURL() {
+        let zipURL = URL(fileURLWithPath: "/tmp/test-archive.zip")
+        let provider = FolderGridDragItemProvider.make(for: zipURL)
+
+        XCTAssertEqual(provider.suggestedName, "test-archive.zip")
+        XCTAssertTrue(provider.hasItemConformingToTypeIdentifier("public.file-url"))
+        // 确保未退化为以 zip-archive 纯数据格式导出，避免访达将其重命名为本地化名称「Zip归档.zip」
+        XCTAssertFalse(provider.registeredTypeIdentifiers.contains("public.zip-archive"))
+    }
 }
