@@ -91,3 +91,13 @@ enum FolderDropPlan {
         }
     }
 }
+
+/// 中转站与文件夹网格拖出文件时的 ItemProvider 工厂。
+/// 显式使用 NSURL 注册并指定 suggestedName，避免 macOS 导出为「Zip归档.zip」等类型本地化回退名称。
+enum FolderGridDragItemProvider {
+    static func make(for url: URL) -> NSItemProvider {
+        let provider = NSItemProvider(object: url as NSURL)
+        provider.suggestedName = url.lastPathComponent
+        return provider
+    }
+}
