@@ -392,6 +392,7 @@
 		A00000000000000000009751 /* NonConstrainingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000009750 /* NonConstrainingPanel.swift */; };
 		A00000000000000000009752 /* NonConstrainingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000009750 /* NonConstrainingPanel.swift */; };
 		A00000000000000000000C01 /* ManualPanelHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000C00 /* ManualPanelHostTests.swift */; };
+		A0000000000000000000ACC1 /* NonConstrainingPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000ACC0 /* NonConstrainingPanelTests.swift */; };
 		A00000000000000000009711 /* DragConversionPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000009710 /* DragConversionPlanTests.swift */; };
 		A00000000000000000009721 /* MessagingAppStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000009720 /* MessagingAppStoreTests.swift */; };
 		A00000000000000000009731 /* DragControllerConversionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000009730 /* DragControllerConversionTests.swift */; };
@@ -654,6 +655,7 @@
 		A00000000000000000009700 /* DragConversionPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragConversionPlan.swift; sourceTree = "<group>"; };
 		A00000000000000000009750 /* NonConstrainingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NonConstrainingPanel.swift; sourceTree = "<group>"; };
 		A00000000000000000000C00 /* ManualPanelHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualPanelHostTests.swift; sourceTree = "<group>"; };
+		A0000000000000000000ACC0 /* NonConstrainingPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NonConstrainingPanelTests.swift; sourceTree = "<group>"; };
 		A00000000000000000009710 /* DragConversionPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragConversionPlanTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000A100 /* MessagingZoneAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingZoneAdmission.swift; sourceTree = "<group>"; };
 		A00000000000000000000D100 /* MessagingMainWindowDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingMainWindowDecision.swift; sourceTree = "<group>"; };
@@ -1452,6 +1454,7 @@
 				A00000000000000000009720 /* MessagingAppStoreTests.swift */,
 				A00000000000000000009730 /* DragControllerConversionTests.swift */,
 				A00000000000000000000C00 /* ManualPanelHostTests.swift */,
+				A0000000000000000000ACC0 /* NonConstrainingPanelTests.swift */,
 			);
 			path = Unit;
 			sourceTree = "<group>";
@@ -1551,6 +1554,10 @@
 				en,
 				Base,
 				"zh-Hans",
+				"zh-Hant",
+				ja,
+				de,
+				fr,
 			);
 			mainGroup = A0000000000000000000001C;
 			productRefGroup = A00000000000000000000023 /* Products */;
@@ -2087,6 +2094,7 @@
 					A00000000000000000009721 /* MessagingAppStoreTests.swift in Sources */,
 					A00000000000000000009731 /* DragControllerConversionTests.swift in Sources */,
 					A00000000000000000000C01 /* ManualPanelHostTests.swift in Sources */,
+					A0000000000000000000ACC1 /* NonConstrainingPanelTests.swift in Sources */,
 					A00000000000000000001031 /* DockWindowEligibilityPolicy.swift in Sources */,
 					A00000000000000000001033 /* ObservationAdmissionGate.swift in Sources */,
 					A0000000000000000000103B /* AppFallbackRetentionPolicy.swift in Sources */,
@@ -2177,7 +2185,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "macos-dock-cc Local Code Signing";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 41;
+				CURRENT_PROJECT_VERSION = 44;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Resources/Info.plist;
 				SWIFT_OBJC_BRIDGING_HEADER = "App/TungstenEdge-Bridging-Header.h";
@@ -2185,7 +2193,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.12.1;
+				MARKETING_VERSION = 0.13.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.caye.macosdockcc.v2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -2200,7 +2208,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "macos-dock-cc Local Code Signing";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 41;
+				CURRENT_PROJECT_VERSION = 44;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Resources/Info.plist;
 				SWIFT_OBJC_BRIDGING_HEADER = "App/TungstenEdge-Bridging-Header.h";
@@ -2208,7 +2216,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.12.1;
+				MARKETING_VERSION = 0.13.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.caye.macosdockcc.v2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -2221,8 +2229,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGNING_ALLOWED = NO;
-				CURRENT_PROJECT_VERSION = 41;
-				MARKETING_VERSION = 0.12.1;
+				CURRENT_PROJECT_VERSION = 44;
+				MARKETING_VERSION = 0.13.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.caye.macosdockcc.v2.windowlab;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_STRICT_CONCURRENCY = targeted;
@@ -2234,8 +2242,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGNING_ALLOWED = NO;
-				CURRENT_PROJECT_VERSION = 41;
-				MARKETING_VERSION = 0.12.1;
+				CURRENT_PROJECT_VERSION = 44;
+				MARKETING_VERSION = 0.13.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.caye.macosdockcc.v2.windowlab;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_COMPILATION_MODE = wholemodule;

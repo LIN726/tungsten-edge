@@ -1,10 +1,25 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Shared by the two hosting roots of one taskbar; a resize must not inherit chip animations.
 @MainActor
 final class PanelHeightResizePresentation: ObservableObject {
     @Published var isActive = false
+
+    func nonInteractiveHeightChanges(
+        from heights: Published<DockPanelHeight>.Publisher
+    ) -> AnyPublisher<DockPanelHeight, Never> {
+        heights
+            .removeDuplicates()
+            .dropFirst()
+            // Reject at publication, before a queued delivery can outlive the drag.
+            .filter { [weak self] _ in self?.isActive == false }
+            .receive(on: DispatchQueue.main)
+            // A new drag may have started while an ordinary change was queued.
+            .filter { [weak self] _ in self?.isActive == false }
+            .eraseToAnyPublisher()
+    }
 }
 
 private struct PanelHeightResizingKey: EnvironmentKey {
@@ -78,6 +93,22 @@ enum PanelCollectionBehavior {
 class NonConstrainingPanel: NSPanel {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         frameRect
+    }
+
+    // `isMovable = false` only stops mouse drags: any process with Accessibility access can still
+    // relocate the window through `kAXPositionAttribute`, and `PanelCoordinator` never puts it
+    // back (`setFrames` compares targets, not live frames). A window manager reacting to the
+    // per-tick frame changes of a grip drag is exactly such a process. NSWindow serves AX
+    // position / size writes through the legacy attribute API below; disallowing
+    // `setAccessibilityFrame(_:)` via `isAccessibilitySelectorAllowed` does not block them.
+    override func accessibilityIsAttributeSettable(_ attribute: NSAccessibility.Attribute) -> Bool {
+        if attribute == .position || attribute == .size { return false }
+        return super.accessibilityIsAttributeSettable(attribute)
+    }
+
+    override func accessibilitySetValue(_ value: Any?, forAttribute attribute: NSAccessibility.Attribute) {
+        if attribute == .position || attribute == .size { return }
+        super.accessibilitySetValue(value, forAttribute: attribute)
     }
 }
 

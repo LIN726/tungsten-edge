@@ -32,6 +32,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     func present() {
+        coordinator.setTaskbarHeightEditing(false)
         let window = window ?? makeWindow()
         if let closedFrame {
             window.setFrame(closedFrame, display: false)
@@ -85,6 +86,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         guard let window, notification.object as? NSWindow === window else { return }
+        coordinator.setTaskbarHeightEditing(false)
         closedFrame = window.frame
         sessionSubscriptions.removeAll()
         window.contentView = NSView()
@@ -105,6 +107,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private func select(tab: SettingsTab) {
         // 点已选中的标签早退，不空放一遍高度动画。
         guard tabState.selected != tab else { return }
+        coordinator.setTaskbarHeightEditing(false)
         // **先改再量**：量高探针共享这份 tabState，改完它量到的才是新页。
         tabState.selected = tab
         window?.toolbar?.selectedItemIdentifier = NSToolbarItem.Identifier(tab.rawValue)
@@ -142,6 +145,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// `present()` 与授权 sink 走默认 false——与一页式时代的行为一致。
     private func resizeToFitKeepingTopEdge(animated: Bool = false) {
         guard let window else { return }
+        // The probe must carry the same fixed width as the real window (`SettingsWindowView` puts
+        // `.frame(width:)` outside its ScrollView). `fittingSize` proposes no width, so without it
+        // every wrapping note measures single-line and the window comes up short by one line per
+        // note that wraps — invisible in English, 30–45pt of clipped content in German and French.
         let probe = NSHostingView(
             rootView: SettingsWindowContent(
                 store: store,
@@ -150,6 +157,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 tabState: tabState,
                 onShowWelcomeGuide: onShowWelcomeGuide
             )
+            .frame(width: SettingsWindowView.contentWidth)
         )
         probe.setFrameSize(NSSize(width: SettingsWindowView.contentWidth, height: 0))
         probe.layoutSubtreeIfNeeded()

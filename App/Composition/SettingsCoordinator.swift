@@ -57,6 +57,9 @@ final class SettingsCoordinator: ObservableObject {
     /// 改键时的真实注册入口（AppDelegate 手里的 `GlobalHotKeyMonitor.update(shortcut:)`）。
     /// 闭包注入：monitor 归 AppDelegate 持有，临时副本（DMG）根本没有它。
     private let hotKeyRegistrar: (GlobalHotKeyShortcut) -> GlobalHotKeyMonitor.RegistrationStatus
+    /// Injected by AppDelegate while the taskbar runs; both callbacks capture it weakly.
+    var taskbarHeightSessionHandler: ((Bool) -> Void)?
+    var taskbarHeightUpdateHandler: (() -> Void)?
     private var updateServiceSubscription: AnyCancellable?
     private var launchRefreshGeneration: UInt64 = 0
     private var nativeDockRefreshGeneration: UInt64 = 0
@@ -94,6 +97,20 @@ final class SettingsCoordinator: ObservableObject {
         // （这条通道只喂状态栏菜单和设置窗口，不碰任务条的渲染链路。）
         updateServiceSubscription = updateService.changes
             .sink { [weak self] _ in self?.objectWillChange.send() }
+    }
+
+    // MARK: Taskbar height
+
+    func setTaskbarHeightEditing(_ editing: Bool) {
+        taskbarHeightSessionHandler?(editing)
+    }
+
+    func setTaskbarHeight(_ height: DockPanelHeight) {
+        guard store.dockPanelHeight != height else { return }
+        store.setDockPanelHeight(height)
+        // Published emits before assignment. Commit after the setter returns so every
+        // hosting root and panel reads the new height in this same input event.
+        taskbarHeightUpdateHandler?()
     }
 
     // MARK: 登录项
@@ -301,7 +318,12 @@ final class SettingsCoordinator: ObservableObject {
     /// 而且 Sparkle 自己也会写这个偏好。
     var automaticallyChecksForUpdates: Bool {
         get { updateService.automaticallyChecksForUpdates }
-        set { updateService.automaticallyChecksForUpdates = newValue }
+        set {
+            // A pass-through computed property publishes nothing on its own: without this the
+            // checkbox keeps its old look while the real value has already flipped.
+            objectWillChange.send()
+            updateService.automaticallyChecksForUpdates = newValue
+        }
     }
 
     // MARK: 应用内反馈
