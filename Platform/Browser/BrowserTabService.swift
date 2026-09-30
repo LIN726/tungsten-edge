@@ -114,12 +114,15 @@ public final class BrowserTabService: Sendable {
         }
 
         // 3. 检查是否有真实可见窗口（通过 ScriptingBridge 检查 windows 数组）
-        for app in pool {
-            let pid = app.processIdentifier
-            if let sbApp = SBApplication(processIdentifier: pid),
-               let windows = sbApp.value(forKey: "windows") as? [SBObject],
-               !windows.isEmpty {
-                return pid
+        // 优化：仅针对受支持的浏览器执行 ScriptingBridge 探测，彻底避免对非 AppleScript 脚本化应用（PyCharm 等 IDE、Ghostty 等终端）产生无效的 AppleEvent IPC 与进程唤醒
+        if isSupportedBrowser(bundleID: bundleID) {
+            for app in pool {
+                let pid = app.processIdentifier
+                if let sbApp = SBApplication(processIdentifier: pid),
+                   let windows = sbApp.value(forKey: "windows") as? [SBObject],
+                   !windows.isEmpty {
+                    return pid
+                }
             }
         }
 
@@ -133,7 +136,9 @@ public final class BrowserTabService: Sendable {
     ///   - targetPID: 明确的目标进程 PID（可选，若提供则彻底消除 LaunchServices 多进程路由错乱）
     public func fetchTabs(bundleID: String, windowTitle: String, targetPID: pid_t? = nil) async -> [BrowserTabItem] {
         if isSupportedTerminal(bundleID: bundleID) || isSupportedDocumentApp(bundleID: bundleID) {
-            return fetchTerminalTabsSync(bundleID: bundleID, targetPID: targetPID)
+            return await Task.detached(priority: .userInitiated) { [self] in
+                self.fetchTerminalTabsSync(bundleID: bundleID, targetPID: targetPID)
+            }.value
         }
 
         guard isSupportedBrowser(bundleID: bundleID) else { return [] }
@@ -186,7 +191,9 @@ public final class BrowserTabService: Sendable {
     /// 激活指定窗口中的特定 Tab
     public func activateTab(bundleID: String, targetPID: pid_t? = nil, windowID: Int, tabIndex: Int, tabTitle: String = "") async -> Bool {
         if isSupportedTerminal(bundleID: bundleID) || isSupportedDocumentApp(bundleID: bundleID) {
-            return activateTerminalTab(bundleID: bundleID, targetPID: targetPID, windowID: windowID, tabIndex: tabIndex, tabTitle: tabTitle)
+            return await Task.detached(priority: .userInitiated) { [self] in
+                self.activateTerminalTab(bundleID: bundleID, targetPID: targetPID, windowID: windowID, tabIndex: tabIndex, tabTitle: tabTitle)
+            }.value
         }
         let isSafari = Self.safariBundles.contains(bundleID)
         let resolvedPID = targetPID ?? resolvePID(for: bundleID)
@@ -257,7 +264,9 @@ public final class BrowserTabService: Sendable {
         if isSupportedTerminal(bundleID: bundleID) || isSupportedDocumentApp(bundleID: bundleID) {
             let pid = targetPID ?? resolvePID(for: bundleID)
             guard let pid else { return false }
-            _ = activateTerminalTab(bundleID: bundleID, targetPID: pid, windowID: windowID, tabIndex: tabIndex)
+            _ = await Task.detached(priority: .userInitiated) { [self] in
+                self.activateTerminalTab(bundleID: bundleID, targetPID: pid, windowID: windowID, tabIndex: tabIndex)
+            }.value
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 TerminalControlService.postCmdKey(pid: pid, keyCode: 13) // 'W'
             }
@@ -684,9 +693,14 @@ public enum AppWindowTabReader {
     public static func isSeparator(_ element: AXUIElement) -> Bool {
         var subroleRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subroleRef) == .success,
-           let subrole = subroleRef as? String,
-           subrole == "AXMenuSeparator" || subrole == "AXSeparator" || subrole.contains("Separator") {
-            return true
+           let subrole = subroleRef as? String {
+            if subrole == "AXMenuSeparator" || subrole == "AXSeparator" || subrole.contains("Separator") {
+                return true
+            }
+            // 快速短路：若 subrole 明确不是分隔符（如 AXMenuItem），直接判定为普通菜单项，省去后续 2 次跨进程 IPC
+            if !subrole.isEmpty {
+                return false
+            }
         }
         var roleRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success,
@@ -749,10 +763,10 @@ public enum AppWindowTabReader {
                     let title = (titleRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     if title.isEmpty { continue }
 
+                    // 优化：优先执行内存哈希 Set 匹配过滤系统动作（0 IPC 开销），避免对系统项发起 hasSubmenu 子节点跨进程遍历
+                    if isSystemAction(title) { continue }
                     // 过滤具有二级子菜单的操作项（如拼贴/移动）
                     if hasSubmenu(item) { continue }
-                    // 过滤系统固有动作
-                    if isSystemAction(title) { continue }
 
                     // 检查激活勾选标识（当前前台活跃会话带 ✓）
                     var markRef: CFTypeRef?
@@ -798,13 +812,15 @@ public enum AppWindowTabReader {
                 let candidateItems = extractWindowCandidates(from: subItems)
                 // 筛选出属于真实 Tab/Window 的菜单项
                 let tabItems = candidateItems.filter { item in
-                    if isSeparator(item) || hasSubmenu(item) { return false }
+                    if isSeparator(item) { return false }
                     var titleRef: CFTypeRef?
                     _ = AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &titleRef)
                     let title = (titleRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    // 优化：优先执行内存哈希匹配过滤系统动作（0 IPC 开销），仅非系统项才检查二级子菜单
                     if title.isEmpty || isSystemAction(title) {
                         return false
                     }
+                    if hasSubmenu(item) { return false }
                     return true
                 }
 
@@ -920,8 +936,13 @@ public enum AppWindowTabReader {
     private static func getSubMenu(from menuBarItem: AXUIElement) -> AXUIElement? {
         var subMenuRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(menuBarItem, kAXChildrenAttribute as CFString, &subMenuRef) == .success,
-              let subMenus = subMenuRef as? [AXUIElement] else {
+              let subMenus = subMenuRef as? [AXUIElement],
+              !subMenus.isEmpty else {
             return nil
+        }
+        // 快速短路：macOS 菜单栏项标准情况下仅包含单个 AXMenu 容器，直接返回避免额外的 role 属性跨进程 IPC
+        if subMenus.count == 1 {
+            return subMenus[0]
         }
         for sub in subMenus {
             var roleRef: CFTypeRef?
