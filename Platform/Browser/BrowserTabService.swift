@@ -704,6 +704,14 @@ public enum AppWindowTabReader {
         "next tab", "previous tab", "cycle through windows",
         "tile window to left of screen", "tile window to right of screen",
         "fill", "center", "left & right", "top & bottom", "quick note",
+        // Ghostty / 终端与多窗口管理特定动作
+        "minimize all", "zoom all", "show/hide all terminals",
+        "zoom split", "select previous split", "select next split",
+        "return to default size", "float on top", "use as default",
+        "remove window from set", "split horizontally", "split vertically",
+        "close split", "maximize active pane", "unmaximize active pane",
+        "bury", "disown", "pin to all spaces",
+        "toggle quick terminal", "toggle inspector",
         // 简体中文
         "最小化", "缩放", "关闭", "前置全部窗口", "前置所有窗口",
         "进入全屏幕", "退出全屏幕", "切换全屏幕",
@@ -712,11 +720,15 @@ public enum AppWindowTabReader {
         "下一个标签页", "上一个标签页", "快速备忘录",
         "拼贴窗口到屏幕左侧", "拼贴窗口到屏幕右侧", "将窗口拼贴到屏幕左侧", "将窗口拼贴到屏幕右侧",
         "全屏幕", "还原", "移到",
+        "最小化所有窗口", "缩放所有窗口", "全部最小化", "全部缩放",
+        "显示/隐藏所有终端", "缩放分屏", "选择上一个分屏", "选择下一个分屏",
+        "恢复默认大小", "置顶", "设为默认", "从窗口集合移除",
         // 繁体中文
         "縮小", "縮放", "關閉", "將所有視窗移至最前",
         "進入全螢幕", "結束全螢幕", "將標籤頁移到新視窗", "合併所有視窗",
         "顯示上一個標籤頁", "顯示下一個標籤頁", "選擇下一個標籤", "選擇上一個標籤",
         "將視窗拼貼到螢幕左側", "將視窗拼貼到螢幕右側",
+        "全部縮小", "全部縮放", "顯示/隱藏所有終端",
         // 日文
         "しまう", "拡大/縮小", "すべてを手前に移動", "フルスクリーンにする", "フルスクリーンを解除",
         "すべてのウインドウを結合", "前のタブを表示", "次のタブを表示",
@@ -725,8 +737,56 @@ public enum AppWindowTabReader {
 
     /// 动作菜单项的前缀过滤（小写匹配）
     private static let systemActionPrefixes: [String] = [
-        "tile ", "move to ", "replace ", "拼贴", "将窗口拼贴", "將視窗拼貼", "移到 ", "移至 "
+        "tile ", "move to ", "replace ", "拼贴", "将窗口拼贴", "將視窗拼貼", "移到 ", "移至 ",
+        "select split", "zoom split", "split "
     ]
+
+    /// 识别菜单项是否属于分隔符
+    public static func isSeparator(_ element: AXUIElement) -> Bool {
+        var subroleRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subroleRef) == .success,
+           let subrole = subroleRef as? String,
+           subrole == "AXMenuSeparator" || subrole == "AXSeparator" || subrole.contains("Separator") {
+            return true
+        }
+        var roleRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success,
+           let role = roleRef as? String,
+           role == "AXMenuSeparator" || role == "AXSeparator" || role.contains("Separator") {
+            return true
+        }
+        var titleRef: CFTypeRef?
+        let titleResult = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &titleRef)
+        if titleResult == .success {
+            let title = (titleRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if title.isEmpty {
+                return true
+            }
+        } else if titleResult == .noValue || titleResult == .attributeUnsupported {
+            return true
+        }
+        return false
+    }
+
+    /// 提取 Window 菜单中的权威窗口/标签页候选集（按 AppKit 规范截取最后一个分隔符之后的内容）
+    private static func extractWindowCandidates(from subItems: [AXUIElement]) -> [AXUIElement] {
+        // AppKit 规范：NSApplication.windowsMenu 在最后一个分隔符之后动态挂载当前全部打开的窗口/标签页
+        if let lastSepIndex = subItems.lastIndex(where: { isSeparator($0) }),
+           lastSepIndex + 1 < subItems.count {
+            let windowSection = Array(subItems[(lastSepIndex + 1)...])
+            // 校验该段内是否存在非系统动作的候选；若存在则以该段为权威窗口/标签列表
+            let hasNonSystemActions = windowSection.contains { item in
+                var titleRef: CFTypeRef?
+                _ = AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &titleRef)
+                let title = (titleRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return !title.isEmpty && !isSystemAction(title) && !hasSubmenu(item)
+            }
+            if hasNonSystemActions {
+                return windowSection
+            }
+        }
+        return subItems
+    }
 
     /// 从给定进程中提取其所有打开的窗口与标签页会话
     public static func fetchTabs(pid: pid_t) -> [BrowserTabItem] {
@@ -740,9 +800,11 @@ public enum AppWindowTabReader {
             var subItemsRef: CFTypeRef?
             if AXUIElementCopyAttributeValue(subMenu, kAXChildrenAttribute as CFString, &subItemsRef) == .success,
                let subItems = subItemsRef as? [AXUIElement] {
+                let candidateItems = extractWindowCandidates(from: subItems)
                 var tabs: [BrowserTabItem] = []
-                for item in subItems {
+                for item in candidateItems {
                     AXUIElementSetMessagingTimeout(item, 0.05)
+                    if isSeparator(item) { continue }
                     var titleRef: CFTypeRef?
                     _ = AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &titleRef)
                     let title = (titleRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -794,12 +856,14 @@ public enum AppWindowTabReader {
             var subItemsRef: CFTypeRef?
             if AXUIElementCopyAttributeValue(subMenu, kAXChildrenAttribute as CFString, &subItemsRef) == .success,
                let subItems = subItemsRef as? [AXUIElement] {
+                let candidateItems = extractWindowCandidates(from: subItems)
                 // 筛选出属于真实 Tab/Window 的菜单项
-                let tabItems = subItems.filter { item in
+                let tabItems = candidateItems.filter { item in
+                    if isSeparator(item) || hasSubmenu(item) { return false }
                     var titleRef: CFTypeRef?
                     _ = AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &titleRef)
                     let title = (titleRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    if title.isEmpty || hasSubmenu(item) || isSystemAction(title) {
+                    if title.isEmpty || isSystemAction(title) {
                         return false
                     }
                     return true
