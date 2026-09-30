@@ -338,4 +338,38 @@ enum AppMenuBuilder {
             MediaControlService.shared.openPrivateWindow(bundleID: bid)
         })
     }
+
+    /// 终端类应用（Ghostty、Terminal、iTerm2 等）的专属快捷菜单项（新建窗口、新建标签页）
+    static func appendTerminalItems(to menu: NSMenu, bundleID: String?, pid: pid_t?, onCommandTap: (() -> Void)? = nil) {
+        guard let bid = bundleID, BrowserTabService.shared.isSupportedTerminal(bundleID: bid) else { return }
+        if let onCommandTap {
+            menu.addItem(ClosureMenuItem(String(localized: "View Tabs")) { onCommandTap() })
+        }
+        menu.addItem(ClosureMenuItem(String(localized: "New Window")) {
+            TerminalControlService.newWindow(bundleID: bid, pid: pid)
+        })
+        menu.addItem(ClosureMenuItem(String(localized: "New Tab")) {
+            TerminalControlService.newTab(bundleID: bid, pid: pid)
+        })
+    }
+
+    /// 终端多会话/标签页列表（✓ 代表当前前台活跃会话）
+    static func appendTerminalTabList(
+        to menu: NSMenu,
+        tabs: [BrowserTabItem],
+        activate: @escaping (BrowserTabItem) -> Void
+    ) {
+        guard !tabs.isEmpty else { return }
+        for tab in tabs {
+            let item = ClosureMenuItem(tab.title) {
+                activate(tab)
+            }
+            if tab.isActive {
+                item.state = .on
+            }
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+    }
 }
+

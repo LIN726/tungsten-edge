@@ -1274,7 +1274,7 @@ struct DockStripView: View {
                      slotHidden: projection.draggingID == item.id,
                      onCommandTap: {
                          guard let bid = item.bundleIdentifier,
-                               BrowserTabService.shared.isSupportedBrowser(bundleID: bid) else { return }
+                               BrowserTabService.shared.isSupportedTabApp(bundleID: bid) else { return }
                          let anchorRect: CGRect
                          if let frame = stripHoverFrames[item.id] ?? chipFrames[item.id], stripRootScreenRect != .zero {
                              anchorRect = stripFrameToScreen(frame)
@@ -1346,7 +1346,7 @@ struct DockStripView: View {
                              badgeText: badge,
                              slotHidden: draggingMessagingBundleID == bid,
                              onCommandTap: {
-                                 guard BrowserTabService.shared.isSupportedBrowser(bundleID: bid) else { return }
+                                 guard BrowserTabService.shared.isSupportedTabApp(bundleID: bid) else { return }
                                  let anchorRect: CGRect
                                  if let frame = messagingChipFrames[bid] ?? stripHoverFrames[main.id], stripRootScreenRect != .zero {
                                      anchorRect = stripFrameToScreen(frame)

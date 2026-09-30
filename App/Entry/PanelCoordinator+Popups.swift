@@ -114,7 +114,8 @@ extension PanelCoordinator {
                                 bundleID: bundleID,
                                 targetPID: tab.pid ?? targetPID,
                                 windowID: tab.windowID,
-                                tabIndex: tab.tabIndex
+                                tabIndex: tab.tabIndex,
+                                tabTitle: tab.title
                             )
                         }
                         self?.closeFolderPopup()

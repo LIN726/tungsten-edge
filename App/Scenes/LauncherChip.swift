@@ -228,6 +228,7 @@ struct LauncherChip: View {
                 if isRunning {
                     AppMenuBuilder.appendMediaControls(to: menu, bundleID: bundleID)
                     AppMenuBuilder.appendBrowserShortcuts(to: menu, bundleID: bundleID)
+                    AppMenuBuilder.appendTerminalItems(to: menu, bundleID: bundleID, pid: runningApps.first?.processIdentifier)
                 }
             case .show:
                 if !runningApps.isEmpty {

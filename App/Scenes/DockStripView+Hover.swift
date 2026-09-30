@@ -139,13 +139,13 @@ extension DockStripView {
         switch entry {
         case let .window(item):
             guard let bundleID = item.bundleIdentifier,
-                  BrowserTabService.shared.isSupportedBrowser(bundleID: bundleID) else { return }
+                  BrowserTabService.shared.isSupportedTabApp(bundleID: bundleID) else { return }
             onWindowTabPopupToggle(bundleID, item.title, anchorRect, item.pid)
         case let .messagingApp(bundleID, main):
-            guard BrowserTabService.shared.isSupportedBrowser(bundleID: bundleID) else { return }
+            guard BrowserTabService.shared.isSupportedTabApp(bundleID: bundleID) else { return }
             onWindowTabPopupToggle(bundleID, main?.title ?? "", anchorRect, main?.pid)
         case let .keptApp(bundleID):
-            guard BrowserTabService.shared.isSupportedBrowser(bundleID: bundleID) else { return }
+            guard BrowserTabService.shared.isSupportedTabApp(bundleID: bundleID) else { return }
             onWindowTabPopupToggle(bundleID, "", anchorRect, nil)
         default:
             break

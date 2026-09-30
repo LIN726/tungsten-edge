@@ -59,10 +59,34 @@ public final class BrowserTabService: Sendable {
         "com.apple.SafariTechnologyPreview"
     ]
 
+    /// 支持的终端应用 Bundle Identifiers
+    public static let terminalBundles: Set<String> = [
+        "com.mitchellh.ghostty",
+        "com.apple.Terminal",
+        "com.googlecode.iterm2",
+        "dev.warp.Warp-Stable",
+        "co.zeit.hyper",
+        "com.alacritty",
+        "io.alacritty",
+        "net.kovidgoyal.kitty"
+    ]
+
     /// 判断给定的 Bundle ID 是否属于受支持的浏览器
     public func isSupportedBrowser(bundleID: String?) -> Bool {
         guard let bundleID else { return false }
         return Self.chromiumBundles.contains(bundleID) || Self.safariBundles.contains(bundleID)
+    }
+
+    /// 判断给定的 Bundle ID 是否属于受支持的终端应用
+    public func isSupportedTerminal(bundleID: String?) -> Bool {
+        guard let bundleID else { return false }
+        return Self.terminalBundles.contains(bundleID)
+    }
+
+    /// 判断给定的 Bundle ID 是否属于受支持的 Tab 宿主应用（浏览器或终端）
+    public func isSupportedTabApp(bundleID: String?) -> Bool {
+        guard let bundleID else { return false }
+        return isSupportedBrowser(bundleID: bundleID) || isSupportedTerminal(bundleID: bundleID)
     }
 
     /// 解析指定 bundleID 对应的最佳 GUI 进程 PID（排除无界面/Playwright 等 daemon 实例）
@@ -94,10 +118,14 @@ public final class BrowserTabService: Sendable {
 
     /// 针对特定窗口获取其所有的 Tab 列表
     /// - Parameters:
-    ///   - bundleID: 浏览器的 bundle identifier
+    ///   - bundleID: 宿主应用的 bundle identifier
     ///   - windowTitle: 钨极任务条上该卡片展示的窗口标题（用于窗口匹配）
     ///   - targetPID: 明确的目标进程 PID（可选，若提供则彻底消除 LaunchServices 多进程路由错乱）
     public func fetchTabs(bundleID: String, windowTitle: String, targetPID: pid_t? = nil) async -> [BrowserTabItem] {
+        if isSupportedTerminal(bundleID: bundleID) {
+            return fetchTerminalTabsSync(bundleID: bundleID, targetPID: targetPID)
+        }
+
         guard isSupportedBrowser(bundleID: bundleID) else { return [] }
 
         let resolvedPID = targetPID ?? resolvePID(for: bundleID)
@@ -133,8 +161,45 @@ public final class BrowserTabService: Sendable {
         return filterTabsForWindow(allTabs: allTabs, windowTitle: windowTitle)
     }
 
+    /// 同步提取终端应用的全部真实窗口/标签页会话
+    public func fetchTerminalTabsSync(bundleID: String, targetPID: pid_t? = nil) -> [BrowserTabItem] {
+        let resolvedPID = targetPID ?? resolvePID(for: bundleID)
+        guard let pid = resolvedPID else { return [] }
+
+        guard let list = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
+
+        let terminalWindows = list.filter { w in
+            guard let ownerPID = w[kCGWindowOwnerPID as String] as? pid_t, ownerPID == pid else { return false }
+            let layer = (w[kCGWindowLayer as String] as? Int) ?? -1
+            guard layer == 0 else { return false }
+            let name = (w[kCGWindowName as String] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return !name.isEmpty
+        }
+
+        if terminalWindows.isEmpty { return [] }
+
+        return terminalWindows.enumerated().map { index, w in
+            let wid = (w[kCGWindowNumber as String] as? Int) ?? 0
+            let name = (w[kCGWindowName as String] as? String) ?? ""
+            let isOnscreen = (w[kCGWindowIsOnscreen as String] as? Bool) ?? false
+            return BrowserTabItem(
+                pid: pid,
+                windowID: wid,
+                tabIndex: index + 1,
+                title: name,
+                url: "",
+                isActive: isOnscreen
+            )
+        }
+    }
+
     /// 激活指定窗口中的特定 Tab
-    public func activateTab(bundleID: String, targetPID: pid_t? = nil, windowID: Int, tabIndex: Int) async -> Bool {
+    public func activateTab(bundleID: String, targetPID: pid_t? = nil, windowID: Int, tabIndex: Int, tabTitle: String = "") async -> Bool {
+        if isSupportedTerminal(bundleID: bundleID) {
+            return activateTerminalTab(bundleID: bundleID, targetPID: targetPID, windowID: windowID, tabIndex: tabIndex, tabTitle: tabTitle)
+        }
         let isSafari = Self.safariBundles.contains(bundleID)
         let resolvedPID = targetPID ?? resolvePID(for: bundleID)
 
@@ -201,6 +266,13 @@ public final class BrowserTabService: Sendable {
 
     /// 关闭指定窗口中的特定 Tab
     public func closeTab(bundleID: String, targetPID: pid_t? = nil, windowID: Int, tabIndex: Int) async -> Bool {
+        if isSupportedTerminal(bundleID: bundleID) {
+            let pid = targetPID ?? resolvePID(for: bundleID)
+            guard let pid else { return false }
+            TerminalControlService.postCmdKey(pid: pid, keyCode: 13) // 'W'
+            return true
+        }
+
         let isSafari = Self.safariBundles.contains(bundleID)
         let resolvedPID = targetPID ?? resolvePID(for: bundleID)
 
@@ -493,5 +565,115 @@ public final class BrowserTabService: Sendable {
             }
         }
     }
+
+    /// 激活终端应用中的指定 Tab
+    public func activateTerminalTab(
+        bundleID: String,
+        targetPID: pid_t? = nil,
+        windowID: Int,
+        tabIndex: Int,
+        tabTitle: String = ""
+    ) -> Bool {
+        let pid = targetPID ?? resolvePID(for: bundleID)
+        guard let pid else { return false }
+
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
+        app.activate(options: [.activateIgnoringOtherApps])
+
+        // 1. 优先尝试通过 AX 菜单定位 Window -> tabTitle
+        if !tabTitle.isEmpty {
+            let success = AXMenuTrigger.pressMenuItem(pid: pid, candidatePaths: [
+                ["Window", tabTitle],
+                ["窗口", tabTitle]
+            ])
+            if success { return true }
+        }
+
+        // 2. 对于 Ghostty 等终端，快捷键 Cmd + 1..9 (goto_tab:1..9)
+        if tabIndex >= 1 && tabIndex <= 9 {
+            let keyCodes: [Int: CGKeyCode] = [
+                1: 18, 2: 19, 3: 20, 4: 21, 5: 23,
+                6: 22, 7: 26, 8: 28, 9: 25
+            ]
+            if let keyCode = keyCodes[tabIndex] {
+                TerminalControlService.postCmdKey(pid: pid, keyCode: keyCode)
+            }
+        }
+
+        // 3. 同时通过 SkyLight 将该 windowID 设为前台
+        TerminalControlService.focusWindowViaSkyLight(pid: pid, windowID: CGWindowID(windowID))
+        return true
+    }
 }
+
+// MARK: - 终端应用专属控制服务
+
+public enum TerminalControlService {
+    /// 新建终端窗口（Cmd + N 或菜单）
+    public static func newWindow(bundleID: String, pid: pid_t?) {
+        guard let app = (pid.flatMap { NSRunningApplication(processIdentifier: $0) })
+            ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
+            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+                NSWorkspace.shared.openApplication(at: url, configuration: .init(), completionHandler: nil)
+            }
+            return
+        }
+        app.activate(options: [.activateIgnoringOtherApps])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            let p = app.processIdentifier
+            if !AXMenuTrigger.pressMenuItem(pid: p, candidatePaths: [["File", "New Window"], ["文件", "新建窗口"]]) {
+                postCmdKey(pid: p, keyCode: 45) // 'N'
+            }
+        }
+    }
+
+    /// 新建终端标签页（Cmd + T 或菜单）
+    public static func newTab(bundleID: String, pid: pid_t?) {
+        guard let app = (pid.flatMap { NSRunningApplication(processIdentifier: $0) })
+            ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
+            newWindow(bundleID: bundleID, pid: pid)
+            return
+        }
+        app.activate(options: [.activateIgnoringOtherApps])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            let p = app.processIdentifier
+            if !AXMenuTrigger.pressMenuItem(pid: p, candidatePaths: [["File", "New Tab"], ["文件", "新建标签页"]]) {
+                postCmdKey(pid: p, keyCode: 17) // 'T'
+            }
+        }
+    }
+
+    /// 合成特定修饰键快捷键（Cmd + virtualKey）
+    public static func postCmdKey(pid: pid_t, keyCode: CGKeyCode) {
+        let src = CGEventSource(stateID: .combinedSessionState)
+        let flags: CGEventFlags = [.maskCommand]
+        for down in [true, false] {
+            if let e = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: down) {
+                e.flags = flags
+                e.postToPid(pid)
+            }
+        }
+    }
+
+    private typealias SLPSSetFrontWindowFunc =
+        @convention(c) (UnsafePointer<ProcessSerialNumber>, UInt32, UInt32) -> Int32
+    private typealias GetProcessForPIDFunc =
+        @convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus
+
+    /// 通过 SkyLight 底层跨进程窗口调度将特定 CGWindowID 置前
+    public static func focusWindowViaSkyLight(pid: pid_t, windowID: CGWindowID) {
+        guard let slHandle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY),
+              let slpsSym = dlsym(slHandle, "_SLPSSetFrontProcessWithOptions"),
+              let appServices = dlopen("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", RTLD_LAZY),
+              let getPSNSym = dlsym(appServices, "GetProcessForPID") else { return }
+
+        let slps = unsafeBitCast(slpsSym, to: SLPSSetFrontWindowFunc.self)
+        let getPSN = unsafeBitCast(getPSNSym, to: GetProcessForPIDFunc.self)
+        var psn = ProcessSerialNumber()
+        if getPSN(pid, &psn) == noErr {
+            _ = withUnsafePointer(to: &psn) { slps($0, windowID, 0x200) }
+        }
+    }
+}
+
 

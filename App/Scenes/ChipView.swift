@@ -427,9 +427,27 @@ struct ChipView: View {
     private func buildChipMenu() -> NSMenu {
         let menu = NSMenu()
         let bid = item.bundleIdentifier
-        // 窗口列表最前（仅应用级入口；次序见 Docs/27 2026-08-24）：✓ 前台窗，◇ 已最小化。
+        // 窗口列表最前（仅应用级入口或终端多会话；次序见 Docs/27 2026-08-24）：✓ 前台窗，◇ 已最小化。
         // 只读快照——菜单在右键瞬间同步构建，这条路径上不做任何 AX。
-        if showsWindowListInMenu, let listBid = bid {
+        let isTerminal = BrowserTabService.shared.isSupportedTerminal(bundleID: bid)
+        if isTerminal, let listBid = bid {
+            let terminalTabs = BrowserTabService.shared.fetchTerminalTabsSync(bundleID: listBid, targetPID: item.pid)
+            if !terminalTabs.isEmpty {
+                AppMenuBuilder.appendTerminalTabList(
+                    to: menu,
+                    tabs: terminalTabs,
+                    activate: { tab in
+                        _ = BrowserTabService.shared.activateTerminalTab(
+                            bundleID: listBid,
+                            targetPID: tab.pid,
+                            windowID: tab.windowID,
+                            tabIndex: tab.tabIndex,
+                            tabTitle: tab.title
+                        )
+                    }
+                )
+            }
+        } else if showsWindowListInMenu, let listBid = bid {
             AppMenuBuilder.appendWindowList(
                 to: menu,
                 entries: WindowListMenuPlan.entries(
@@ -449,10 +467,14 @@ struct ChipView: View {
         AppMenuBuilder.appendMediaControls(to: menu, bundleID: bid)
         if item.isAppLevelFallback {
             if isFinderChip { AppMenuBuilder.appendFinderItems(to: menu) }
-            if let bid, BrowserTabService.shared.isSupportedBrowser(bundleID: bid), let onCommandTap {
-                menu.addItem(ClosureMenuItem(String(localized: "View Tabs")) { onCommandTap() })
+            if isTerminal {
+                AppMenuBuilder.appendTerminalItems(to: menu, bundleID: bid, pid: item.pid, onCommandTap: onCommandTap)
+            } else {
+                if let bid, BrowserTabService.shared.isSupportedBrowser(bundleID: bid), let onCommandTap {
+                    menu.addItem(ClosureMenuItem(String(localized: "View Tabs")) { onCommandTap() })
+                }
+                AppMenuBuilder.appendBrowserShortcuts(to: menu, bundleID: bid)
             }
-            AppMenuBuilder.appendBrowserShortcuts(to: menu, bundleID: bid)
             if effectiveStatus == "hidden" {
                 menu.addItem(ClosureMenuItem(String(localized: "Show")) { runtime.activate(windowID: item.actionWindowID) })
             } else {
@@ -466,11 +488,15 @@ struct ChipView: View {
             }
         } else {
             if isFinderChip { AppMenuBuilder.appendFinderItems(to: menu) }
-            if let bid, BrowserTabService.shared.isSupportedBrowser(bundleID: bid), let onCommandTap {
-                menu.addItem(ClosureMenuItem(String(localized: "View Tabs")) { onCommandTap() })
+            if isTerminal {
+                AppMenuBuilder.appendTerminalItems(to: menu, bundleID: bid, pid: item.pid, onCommandTap: onCommandTap)
+            } else {
+                if let bid, BrowserTabService.shared.isSupportedBrowser(bundleID: bid), let onCommandTap {
+                    menu.addItem(ClosureMenuItem(String(localized: "View Tabs")) { onCommandTap() })
+                }
+                AppMenuBuilder.appendBrowserShortcuts(to: menu, bundleID: bid)
+                menu.addItem(ClosureMenuItem(String(localized: "New Window")) { runtime.newWindow(windowID: item.actionWindowID) })
             }
-            AppMenuBuilder.appendBrowserShortcuts(to: menu, bundleID: bid)
-            menu.addItem(ClosureMenuItem(String(localized: "New Window")) { runtime.newWindow(windowID: item.actionWindowID) })
             if effectiveStatus == "minimized" {
                 menu.addItem(ClosureMenuItem(String(localized: "Restore")) { runtime.activate(windowID: item.actionWindowID) })
             } else {
