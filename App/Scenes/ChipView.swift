@@ -427,17 +427,18 @@ struct ChipView: View {
     private func buildChipMenu() -> NSMenu {
         let menu = NSMenu()
         let bid = item.bundleIdentifier
-        // 窗口列表最前（仅应用级入口或终端多会话；次序见 Docs/27 2026-08-24）：✓ 前台窗，◇ 已最小化。
+        // 窗口列表最前（仅应用级入口或终端/文档多会话；次序见 Docs/27 2026-08-24）：✓ 前台窗，◇ 已最小化。
         // 只读快照——菜单在右键瞬间同步构建，这条路径上不做任何 AX。
         let isTerminal = BrowserTabService.shared.isSupportedTerminal(bundleID: bid)
-        if isTerminal, let listBid = bid {
-            let terminalTabs = BrowserTabService.shared.fetchTerminalTabsSync(bundleID: listBid, targetPID: item.pid)
-            if !terminalTabs.isEmpty {
+        let isDocApp = BrowserTabService.shared.isSupportedDocumentApp(bundleID: bid)
+        if (isTerminal || isDocApp), let listBid = bid {
+            let windowTabs = BrowserTabService.shared.fetchWindowTabsSync(bundleID: listBid, targetPID: item.pid)
+            if !windowTabs.isEmpty {
                 AppMenuBuilder.appendTerminalTabList(
                     to: menu,
-                    tabs: terminalTabs,
+                    tabs: windowTabs,
                     activate: { tab in
-                        _ = BrowserTabService.shared.activateTerminalTab(
+                        _ = BrowserTabService.shared.activateTabSync(
                             bundleID: listBid,
                             targetPID: tab.pid,
                             windowID: tab.windowID,
@@ -469,6 +470,11 @@ struct ChipView: View {
             if isFinderChip { AppMenuBuilder.appendFinderItems(to: menu) }
             if isTerminal {
                 AppMenuBuilder.appendTerminalItems(to: menu, bundleID: bid, pid: item.pid, onCommandTap: onCommandTap)
+            } else if isDocApp {
+                if let onCommandTap {
+                    menu.addItem(ClosureMenuItem(String(localized: "View Tabs")) { onCommandTap() })
+                }
+                menu.addItem(ClosureMenuItem(String(localized: "New Window")) { runtime.newWindow(windowID: item.actionWindowID) })
             } else {
                 if let bid, BrowserTabService.shared.isSupportedBrowser(bundleID: bid), let onCommandTap {
                     menu.addItem(ClosureMenuItem(String(localized: "View Tabs")) { onCommandTap() })
@@ -490,6 +496,11 @@ struct ChipView: View {
             if isFinderChip { AppMenuBuilder.appendFinderItems(to: menu) }
             if isTerminal {
                 AppMenuBuilder.appendTerminalItems(to: menu, bundleID: bid, pid: item.pid, onCommandTap: onCommandTap)
+            } else if isDocApp {
+                if let onCommandTap {
+                    menu.addItem(ClosureMenuItem(String(localized: "View Tabs")) { onCommandTap() })
+                }
+                menu.addItem(ClosureMenuItem(String(localized: "New Window")) { runtime.newWindow(windowID: item.actionWindowID) })
             } else {
                 if let bid, BrowserTabService.shared.isSupportedBrowser(bundleID: bid), let onCommandTap {
                     menu.addItem(ClosureMenuItem(String(localized: "View Tabs")) { onCommandTap() })

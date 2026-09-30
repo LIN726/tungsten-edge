@@ -71,6 +71,26 @@ public final class BrowserTabService: Sendable {
         "net.kovidgoyal.kitty"
     ]
 
+    /// 支持的文档与代码编辑应用 Bundle Identifiers（Typora、VS Code、Xcode、Cursor 等）
+    public static let documentBundles: Set<String> = [
+        "abnerworks.Typora",
+        "io.typora",
+        "com.microsoft.VSCode",
+        "com.microsoft.VSCodeInsiders",
+        "com.microsoft.VSCodeExploration",
+        "com.visualstudio.code.oss",
+        "com.vscodium",
+        "com.todesktop.230313mzl4w4u92", // Cursor
+        "com.exafunction.windsurf",      // Windsurf
+        "com.apple.dt.Xcode",
+        "com.sublimetext.4",
+        "com.sublimetext.3",
+        "com.apple.TextEdit",
+        "dev.zed.Zed",
+        "com.panic.Nova",
+        "md.obsidian"
+    ]
+
     /// 判断给定的 Bundle ID 是否属于受支持的浏览器
     public func isSupportedBrowser(bundleID: String?) -> Bool {
         guard let bundleID else { return false }
@@ -83,10 +103,18 @@ public final class BrowserTabService: Sendable {
         return Self.terminalBundles.contains(bundleID)
     }
 
-    /// 判断给定的 Bundle ID 是否属于受支持的 Tab 宿主应用（浏览器或终端）
+    /// 判断给定的 Bundle ID 是否属于受支持的文档/代码编辑应用（Typora、VS Code 等）
+    public func isSupportedDocumentApp(bundleID: String?) -> Bool {
+        guard let bundleID else { return false }
+        return Self.documentBundles.contains(bundleID)
+    }
+
+    /// 判断给定的 Bundle ID 是否属于受支持的 Tab 宿主应用（浏览器、终端、文档/代码编辑）
     public func isSupportedTabApp(bundleID: String?) -> Bool {
         guard let bundleID else { return false }
-        return isSupportedBrowser(bundleID: bundleID) || isSupportedTerminal(bundleID: bundleID)
+        return isSupportedBrowser(bundleID: bundleID)
+            || isSupportedTerminal(bundleID: bundleID)
+            || isSupportedDocumentApp(bundleID: bundleID)
     }
 
     /// 解析指定 bundleID 对应的最佳 GUI 进程 PID（排除无界面/Playwright 等 daemon 实例）
@@ -122,7 +150,7 @@ public final class BrowserTabService: Sendable {
     ///   - windowTitle: 钨极任务条上该卡片展示的窗口标题（用于窗口匹配）
     ///   - targetPID: 明确的目标进程 PID（可选，若提供则彻底消除 LaunchServices 多进程路由错乱）
     public func fetchTabs(bundleID: String, windowTitle: String, targetPID: pid_t? = nil) async -> [BrowserTabItem] {
-        if isSupportedTerminal(bundleID: bundleID) {
+        if isSupportedTerminal(bundleID: bundleID) || isSupportedDocumentApp(bundleID: bundleID) {
             return fetchTerminalTabsSync(bundleID: bundleID, targetPID: targetPID)
         }
 
@@ -161,43 +189,21 @@ public final class BrowserTabService: Sendable {
         return filterTabsForWindow(allTabs: allTabs, windowTitle: windowTitle)
     }
 
-    /// 同步提取终端应用的全部真实窗口/标签页会话
+    /// 同步提取终端或文档/代码编辑应用的全部真实窗口/标签页会话（Ghostty、Typora、VS Code 等）
     public func fetchTerminalTabsSync(bundleID: String, targetPID: pid_t? = nil) -> [BrowserTabItem] {
         let resolvedPID = targetPID ?? resolvePID(for: bundleID)
         guard let pid = resolvedPID else { return [] }
+        return AppWindowTabReader.fetchTabs(pid: pid)
+    }
 
-        guard let list = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
-            return []
-        }
-
-        let terminalWindows = list.filter { w in
-            guard let ownerPID = w[kCGWindowOwnerPID as String] as? pid_t, ownerPID == pid else { return false }
-            let layer = (w[kCGWindowLayer as String] as? Int) ?? -1
-            guard layer == 0 else { return false }
-            let name = (w[kCGWindowName as String] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return !name.isEmpty
-        }
-
-        if terminalWindows.isEmpty { return [] }
-
-        return terminalWindows.enumerated().map { index, w in
-            let wid = (w[kCGWindowNumber as String] as? Int) ?? 0
-            let name = (w[kCGWindowName as String] as? String) ?? ""
-            let isOnscreen = (w[kCGWindowIsOnscreen as String] as? Bool) ?? false
-            return BrowserTabItem(
-                pid: pid,
-                windowID: wid,
-                tabIndex: index + 1,
-                title: name,
-                url: "",
-                isActive: isOnscreen
-            )
-        }
+    /// 提取多窗口/多标签应用的全部真实会话（终端、Typora、VS Code、Xcode 等）
+    public func fetchWindowTabsSync(bundleID: String, targetPID: pid_t? = nil) -> [BrowserTabItem] {
+        fetchTerminalTabsSync(bundleID: bundleID, targetPID: targetPID)
     }
 
     /// 激活指定窗口中的特定 Tab
     public func activateTab(bundleID: String, targetPID: pid_t? = nil, windowID: Int, tabIndex: Int, tabTitle: String = "") async -> Bool {
-        if isSupportedTerminal(bundleID: bundleID) {
+        if isSupportedTerminal(bundleID: bundleID) || isSupportedDocumentApp(bundleID: bundleID) {
             return activateTerminalTab(bundleID: bundleID, targetPID: targetPID, windowID: windowID, tabIndex: tabIndex, tabTitle: tabTitle)
         }
         let isSafari = Self.safariBundles.contains(bundleID)
@@ -266,10 +272,13 @@ public final class BrowserTabService: Sendable {
 
     /// 关闭指定窗口中的特定 Tab
     public func closeTab(bundleID: String, targetPID: pid_t? = nil, windowID: Int, tabIndex: Int) async -> Bool {
-        if isSupportedTerminal(bundleID: bundleID) {
+        if isSupportedTerminal(bundleID: bundleID) || isSupportedDocumentApp(bundleID: bundleID) {
             let pid = targetPID ?? resolvePID(for: bundleID)
             guard let pid else { return false }
-            TerminalControlService.postCmdKey(pid: pid, keyCode: 13) // 'W'
+            _ = activateTerminalTab(bundleID: bundleID, targetPID: pid, windowID: windowID, tabIndex: tabIndex)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                TerminalControlService.postCmdKey(pid: pid, keyCode: 13) // 'W'
+            }
             return true
         }
 
@@ -566,7 +575,7 @@ public final class BrowserTabService: Sendable {
         }
     }
 
-    /// 激活终端应用中的指定 Tab
+    /// 激活终端或文档编辑应用中的指定 Tab
     public func activateTerminalTab(
         bundleID: String,
         targetPID: pid_t? = nil,
@@ -576,33 +585,29 @@ public final class BrowserTabService: Sendable {
     ) -> Bool {
         let pid = targetPID ?? resolvePID(for: bundleID)
         guard let pid else { return false }
+        return AppWindowTabReader.activateTab(
+            pid: pid,
+            tabIndex: tabIndex,
+            tabTitle: tabTitle,
+            windowID: windowID
+        )
+    }
 
-        guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
-        app.activate(options: [.activateIgnoringOtherApps])
-
-        // 1. 优先尝试通过 AX 菜单定位 Window -> tabTitle
-        if !tabTitle.isEmpty {
-            let success = AXMenuTrigger.pressMenuItem(pid: pid, candidatePaths: [
-                ["Window", tabTitle],
-                ["窗口", tabTitle]
-            ])
-            if success { return true }
-        }
-
-        // 2. 对于 Ghostty 等终端，快捷键 Cmd + 1..9 (goto_tab:1..9)
-        if tabIndex >= 1 && tabIndex <= 9 {
-            let keyCodes: [Int: CGKeyCode] = [
-                1: 18, 2: 19, 3: 20, 4: 21, 5: 23,
-                6: 22, 7: 26, 8: 28, 9: 25
-            ]
-            if let keyCode = keyCodes[tabIndex] {
-                TerminalControlService.postCmdKey(pid: pid, keyCode: keyCode)
-            }
-        }
-
-        // 3. 同时通过 SkyLight 将该 windowID 设为前台
-        TerminalControlService.focusWindowViaSkyLight(pid: pid, windowID: CGWindowID(windowID))
-        return true
+    /// 同步激活多标签会话应用的指定 Tab
+    public func activateTabSync(
+        bundleID: String,
+        targetPID: pid_t? = nil,
+        windowID: Int,
+        tabIndex: Int,
+        tabTitle: String = ""
+    ) -> Bool {
+        activateTerminalTab(
+            bundleID: bundleID,
+            targetPID: targetPID,
+            windowID: windowID,
+            tabIndex: tabIndex,
+            tabTitle: tabTitle
+        )
     }
 }
 
@@ -675,5 +680,318 @@ public enum TerminalControlService {
         }
     }
 }
+
+// MARK: - 通用多窗口与标签页读取与调度引擎 (基于 Accessibility Window 菜单)
+
+public enum AppWindowTabReader {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.caye.macosdockcc.v2",
+        category: "AppWindowTabReader"
+    )
+
+    /// 识别 Window / 窗口 菜单项关键词（多语言覆盖）
+    private static let windowMenuKeywords: Set<String> = [
+        "window", "窗口", "視窗", "ウインドウ", "fenster", "fenêtre", "ventana", "finestra", "윈도우", "окно"
+    ]
+
+    /// 必须被过滤掉的系统/应用通用窗口操作菜单项名称（小写化精确匹配）
+    private static let systemActionExactNames: Set<String> = [
+        // English
+        "minimize", "zoom", "close", "bring all to front", "arrange in front",
+        "enter full screen", "exit full screen", "toggle full screen",
+        "move tab to new window", "merge all windows",
+        "show previous tab", "show next tab", "select next tab", "select previous tab",
+        "next tab", "previous tab", "cycle through windows",
+        "tile window to left of screen", "tile window to right of screen",
+        "fill", "center", "left & right", "top & bottom", "quick note",
+        // 简体中文
+        "最小化", "缩放", "关闭", "前置全部窗口", "前置所有窗口",
+        "进入全屏幕", "退出全屏幕", "切换全屏幕",
+        "将标签页移到新窗口", "合并所有窗口",
+        "显示上一个标签页", "显示下一个标签页", "选择下一个标签", "选择上一个标签",
+        "下一个标签页", "上一个标签页", "快速备忘录",
+        "拼贴窗口到屏幕左侧", "拼贴窗口到屏幕右侧", "将窗口拼贴到屏幕左侧", "将窗口拼贴到屏幕右侧",
+        "全屏幕", "还原", "移到",
+        // 繁体中文
+        "縮小", "縮放", "關閉", "將所有視窗移至最前",
+        "進入全螢幕", "結束全螢幕", "將標籤頁移到新視窗", "合併所有視窗",
+        "顯示上一個標籤頁", "顯示下一個標籤頁", "選擇下一個標籤", "選擇上一個標籤",
+        "將視窗拼貼到螢幕左側", "將視窗拼貼到螢幕右側",
+        // 日文
+        "しまう", "拡大/縮小", "すべてを手前に移動", "フルスクリーンにする", "フルスクリーンを解除",
+        "すべてのウインドウを結合", "前のタブを表示", "次のタブを表示",
+        "ウインドウを画面左側に配置", "ウインドウを画面右側に配置"
+    ]
+
+    /// 动作菜单项的前缀过滤（小写匹配）
+    private static let systemActionPrefixes: [String] = [
+        "tile ", "move to ", "replace ", "拼贴", "将窗口拼贴", "將視窗拼貼", "移到 ", "移至 "
+    ]
+
+    /// 从给定进程中提取其所有打开的窗口与标签页会话
+    public static func fetchTabs(pid: pid_t) -> [BrowserTabItem] {
+        let appElement = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(appElement, 0.05)
+
+        // 1. 优先从菜单栏 Window (窗口) 菜单提取真实标签页（Ghostty、Typora、VS Code、Terminal 等）
+        if let windowMenu = findWindowMenu(in: appElement),
+           let subMenu = getSubMenu(from: windowMenu) {
+            AXUIElementSetMessagingTimeout(subMenu, 0.05)
+            var subItemsRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(subMenu, kAXChildrenAttribute as CFString, &subItemsRef) == .success,
+               let subItems = subItemsRef as? [AXUIElement] {
+                var tabs: [BrowserTabItem] = []
+                for item in subItems {
+                    AXUIElementSetMessagingTimeout(item, 0.05)
+                    var titleRef: CFTypeRef?
+                    _ = AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &titleRef)
+                    let title = (titleRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if title.isEmpty { continue }
+
+                    // 过滤具有二级子菜单的操作项（如拼贴/移动）
+                    if hasSubmenu(item) { continue }
+                    // 过滤系统固有动作
+                    if isSystemAction(title) { continue }
+
+                    // 检查激活勾选标识（当前前台活跃会话带 ✓）
+                    var markRef: CFTypeRef?
+                    _ = AXUIElementCopyAttributeValue(item, "AXMenuItemMarkChar" as CFString, &markRef)
+                    let mark = (markRef as? String) ?? ""
+                    let isActive = mark.contains("✓") || mark.contains("\u{2713}") || mark.contains("✔")
+
+                    let tabIndex = tabs.count + 1
+                    tabs.append(BrowserTabItem(
+                        pid: pid,
+                        windowID: 0,
+                        tabIndex: tabIndex,
+                        title: title,
+                        url: "",
+                        isActive: isActive
+                    ))
+                }
+                if !tabs.isEmpty {
+                    return tabs
+                }
+            }
+        }
+
+        // 2. 兜底方案：通过 AX kAXWindowsAttribute 遍历顶级窗口（适用于无菜单栏或特殊窗口）
+        return fetchTabsFromAXWindows(appElement: appElement, pid: pid)
+    }
+
+    /// 激活指定标签页
+    public static func activateTab(pid: pid_t, tabIndex: Int, tabTitle: String, windowID: Int = 0) -> Bool {
+        if let app = NSRunningApplication(processIdentifier: pid) {
+            app.activate(options: [.activateIgnoringOtherApps])
+        }
+
+        let appElement = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(appElement, 0.08)
+
+        if let windowMenu = findWindowMenu(in: appElement),
+           let subMenu = getSubMenu(from: windowMenu) {
+            AXUIElementSetMessagingTimeout(subMenu, 0.08)
+            var subItemsRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(subMenu, kAXChildrenAttribute as CFString, &subItemsRef) == .success,
+               let subItems = subItemsRef as? [AXUIElement] {
+                // 筛选出属于真实 Tab/Window 的菜单项
+                let tabItems = subItems.filter { item in
+                    var titleRef: CFTypeRef?
+                    _ = AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &titleRef)
+                    let title = (titleRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if title.isEmpty || hasSubmenu(item) || isSystemAction(title) {
+                        return false
+                    }
+                    return true
+                }
+
+                // 优先精准按序号触发（解决重名标签问题，如多个相同的 ~/projects/artemis）
+                if tabIndex >= 1 && tabIndex <= tabItems.count {
+                    let target = tabItems[tabIndex - 1]
+                    if AXUIElementPerformAction(target, kAXPressAction as CFString) == .success {
+                        if windowID > 0 {
+                            TerminalControlService.focusWindowViaSkyLight(pid: pid, windowID: CGWindowID(windowID))
+                        }
+                        return true
+                    }
+                }
+
+                // 兜底按标题匹配触发
+                for item in tabItems {
+                    var titleRef: CFTypeRef?
+                    _ = AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &titleRef)
+                    let itemTitle = (titleRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if !tabTitle.isEmpty && (itemTitle == tabTitle || itemTitle.contains(tabTitle) || tabTitle.contains(itemTitle)) {
+                        if AXUIElementPerformAction(item, kAXPressAction as CFString) == .success {
+                            if windowID > 0 {
+                                TerminalControlService.focusWindowViaSkyLight(pid: pid, windowID: CGWindowID(windowID))
+                            }
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+
+        // 终端快捷键兜底 (Cmd + 1..9)
+        if tabIndex >= 1 && tabIndex <= 9 {
+            let keyCodes: [Int: CGKeyCode] = [
+                1: 18, 2: 19, 3: 20, 4: 21, 5: 23,
+                6: 22, 7: 26, 8: 28, 9: 25
+            ]
+            if let keyCode = keyCodes[tabIndex] {
+                TerminalControlService.postCmdKey(pid: pid, keyCode: keyCode)
+            }
+        }
+
+        if windowID > 0 {
+            TerminalControlService.focusWindowViaSkyLight(pid: pid, windowID: CGWindowID(windowID))
+        }
+
+        return true
+    }
+
+    // MARK: - 内部辅助方法
+
+    public static func isSystemAction(_ title: String) -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if systemActionExactNames.contains(lower) {
+            return true
+        }
+        for prefix in systemActionPrefixes {
+            if lower.hasPrefix(prefix) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func findWindowMenu(in appElement: AXUIElement) -> AXUIElement? {
+        var menuBarRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXMenuBarAttribute as CFString, &menuBarRef) == .success,
+              let menuBar = menuBarRef as! AXUIElement? else {
+            return nil
+        }
+        AXUIElementSetMessagingTimeout(menuBar, 0.05)
+
+        var menuBarItemsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(menuBar, kAXChildrenAttribute as CFString, &menuBarItemsRef) == .success,
+              let menuBarItems = menuBarItemsRef as? [AXUIElement] else {
+            return nil
+        }
+
+        // 1. 优先按菜单标题关键词匹配
+        for item in menuBarItems {
+            AXUIElementSetMessagingTimeout(item, 0.05)
+            var titleRef: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &titleRef)
+            let rawTitle = (titleRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let lower = rawTitle.lowercased()
+            if windowMenuKeywords.contains(lower) || lower.contains("window") || lower.contains("窗口") || lower.contains("視窗") {
+                return item
+            }
+        }
+
+        // 2. 启发式兜底：检查子菜单中是否包含最小化/缩放等窗口固有动作
+        for item in menuBarItems {
+            AXUIElementSetMessagingTimeout(item, 0.05)
+            if containsWindowActions(in: item) {
+                return item
+            }
+        }
+
+        return nil
+    }
+
+    private static func containsWindowActions(in menuBarItem: AXUIElement) -> Bool {
+        guard let subMenu = getSubMenu(from: menuBarItem) else { return false }
+        var subItemsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(subMenu, kAXChildrenAttribute as CFString, &subItemsRef) == .success,
+              let subItems = subItemsRef as? [AXUIElement] else {
+            return false
+        }
+        for sub in subItems.prefix(6) {
+            var titleRef: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(sub, kAXTitleAttribute as CFString, &titleRef)
+            let title = (titleRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+            if title == "minimize" || title == "最小化" || title == "zoom" || title == "缩放" {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func getSubMenu(from menuBarItem: AXUIElement) -> AXUIElement? {
+        var subMenuRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(menuBarItem, kAXChildrenAttribute as CFString, &subMenuRef) == .success,
+              let subMenus = subMenuRef as? [AXUIElement] else {
+            return nil
+        }
+        for sub in subMenus {
+            var roleRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(sub, kAXRoleAttribute as CFString, &roleRef) == .success,
+               let role = roleRef as? String, role == (kAXMenuRole as String) {
+                return sub
+            }
+        }
+        return subMenus.first
+    }
+
+    private static func hasSubmenu(_ element: AXUIElement) -> Bool {
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let children = childrenRef as? [AXUIElement], !children.isEmpty else {
+            return false
+        }
+        for child in children {
+            var roleRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &roleRef) == .success,
+               let role = roleRef as? String, role == (kAXMenuRole as String) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func fetchTabsFromAXWindows(appElement: AXUIElement, pid: pid_t) -> [BrowserTabItem] {
+        AXUIElementSetMessagingTimeout(appElement, 0.05)
+        var rawWindows: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &rawWindows) == .success,
+              let elements = rawWindows as? [AXUIElement] else {
+            return []
+        }
+
+        var tabs: [BrowserTabItem] = []
+        for (index, elem) in elements.enumerated() {
+            AXUIElementSetMessagingTimeout(elem, 0.05)
+            var titleRef: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(elem, kAXTitleAttribute as CFString, &titleRef)
+            let title = (titleRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !title.isEmpty else { continue }
+
+            var roleRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(elem, kAXRoleAttribute as CFString, &roleRef) == .success,
+               let role = roleRef as? String, role != (kAXWindowRole as String) {
+                continue
+            }
+
+            var isMainRef: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(elem, kAXMainAttribute as CFString, &isMainRef)
+            let isMain = (isMainRef as? Bool) ?? false
+
+            tabs.append(BrowserTabItem(
+                pid: pid,
+                windowID: 0,
+                tabIndex: index + 1,
+                title: title,
+                url: "",
+                isActive: isMain
+            ))
+        }
+        return tabs
+    }
+}
+
 
 
