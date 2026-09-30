@@ -71,25 +71,8 @@ public final class BrowserTabService: Sendable {
         "net.kovidgoyal.kitty"
     ]
 
-    /// 支持的文档与代码编辑应用 Bundle Identifiers（Typora、VS Code、Xcode、Cursor 等）
-    public static let documentBundles: Set<String> = [
-        "abnerworks.Typora",
-        "io.typora",
-        "com.microsoft.VSCode",
-        "com.microsoft.VSCodeInsiders",
-        "com.microsoft.VSCodeExploration",
-        "com.visualstudio.code.oss",
-        "com.vscodium",
-        "com.todesktop.230313mzl4w4u92", // Cursor
-        "com.exafunction.windsurf",      // Windsurf
-        "com.apple.dt.Xcode",
-        "com.sublimetext.4",
-        "com.sublimetext.3",
-        "com.apple.TextEdit",
-        "dev.zed.Zed",
-        "com.panic.Nova",
-        "md.obsidian"
-    ]
+    /// 支持的文档与代码编辑应用 Bundle Identifiers（Typora、VS Code、Xcode、Cursor、PyCharm 等）
+    public static var documentBundles: Set<String> { DocumentAppPolicy.documentBundles }
 
     /// 判断给定的 Bundle ID 是否属于受支持的浏览器
     public func isSupportedBrowser(bundleID: String?) -> Bool {
@@ -103,10 +86,9 @@ public final class BrowserTabService: Sendable {
         return Self.terminalBundles.contains(bundleID)
     }
 
-    /// 判断给定的 Bundle ID 是否属于受支持的文档/代码编辑应用（Typora、VS Code 等）
+    /// 判断给定的 Bundle ID 是否属于受支持的文档/代码编辑应用（Typora、VS Code、PyCharm 等）
     public func isSupportedDocumentApp(bundleID: String?) -> Bool {
-        guard let bundleID else { return false }
-        return Self.documentBundles.contains(bundleID)
+        DocumentAppPolicy.isSupportedDocumentApp(bundleID: bundleID)
     }
 
     /// 判断给定的 Bundle ID 是否属于受支持的 Tab 宿主应用（浏览器、终端、文档/代码编辑）
@@ -695,51 +677,8 @@ public enum AppWindowTabReader {
     ]
 
     /// 必须被过滤掉的系统/应用通用窗口操作菜单项名称（小写化精确匹配）
-    private static let systemActionExactNames: Set<String> = [
-        // English
-        "minimize", "zoom", "close", "bring all to front", "arrange in front",
-        "enter full screen", "exit full screen", "toggle full screen",
-        "move tab to new window", "merge all windows",
-        "show previous tab", "show next tab", "select next tab", "select previous tab",
-        "next tab", "previous tab", "cycle through windows",
-        "tile window to left of screen", "tile window to right of screen",
-        "fill", "center", "left & right", "top & bottom", "quick note",
-        // Ghostty / 终端与多窗口管理特定动作
-        "minimize all", "zoom all", "show/hide all terminals",
-        "zoom split", "select previous split", "select next split",
-        "return to default size", "float on top", "use as default",
-        "remove window from set", "split horizontally", "split vertically",
-        "close split", "maximize active pane", "unmaximize active pane",
-        "bury", "disown", "pin to all spaces",
-        "toggle quick terminal", "toggle inspector",
-        // 简体中文
-        "最小化", "缩放", "关闭", "前置全部窗口", "前置所有窗口",
-        "进入全屏幕", "退出全屏幕", "切换全屏幕",
-        "将标签页移到新窗口", "合并所有窗口",
-        "显示上一个标签页", "显示下一个标签页", "选择下一个标签", "选择上一个标签",
-        "下一个标签页", "上一个标签页", "快速备忘录",
-        "拼贴窗口到屏幕左侧", "拼贴窗口到屏幕右侧", "将窗口拼贴到屏幕左侧", "将窗口拼贴到屏幕右侧",
-        "全屏幕", "还原", "移到",
-        "最小化所有窗口", "缩放所有窗口", "全部最小化", "全部缩放",
-        "显示/隐藏所有终端", "缩放分屏", "选择上一个分屏", "选择下一个分屏",
-        "恢复默认大小", "置顶", "设为默认", "从窗口集合移除",
-        // 繁体中文
-        "縮小", "縮放", "關閉", "將所有視窗移至最前",
-        "進入全螢幕", "結束全螢幕", "將標籤頁移到新視窗", "合併所有視窗",
-        "顯示上一個標籤頁", "顯示下一個標籤頁", "選擇下一個標籤", "選擇上一個標籤",
-        "將視窗拼貼到螢幕左側", "將視窗拼貼到螢幕右側",
-        "全部縮小", "全部縮放", "顯示/隱藏所有終端",
-        // 日文
-        "しまう", "拡大/縮小", "すべてを手前に移動", "フルスクリーンにする", "フルスクリーンを解除",
-        "すべてのウインドウを結合", "前のタブを表示", "次のタブを表示",
-        "ウインドウを画面左側に配置", "ウインドウを画面右側に配置"
-    ]
-
-    /// 动作菜单项的前缀过滤（小写匹配）
-    private static let systemActionPrefixes: [String] = [
-        "tile ", "move to ", "replace ", "拼贴", "将窗口拼贴", "將視窗拼貼", "移到 ", "移至 ",
-        "select split", "zoom split", "split "
-    ]
+    private static var systemActionExactNames: Set<String> { WindowMenuActionFilter.systemActionExactNames }
+    private static var systemActionPrefixes: [String] { WindowMenuActionFilter.systemActionPrefixes }
 
     /// 识别菜单项是否属于分隔符
     public static func isSeparator(_ element: AXUIElement) -> Bool {
@@ -897,8 +836,10 @@ public enum AppWindowTabReader {
             }
         }
 
-        // 终端快捷键兜底 (Cmd + 1..9)
-        if tabIndex >= 1 && tabIndex <= 9 {
+        // 终端快捷键兜底 (Cmd + 1..9)，仅对终端应用有效，避免误触 IDE 的快捷键（如 PyCharm 的 Cmd+1 打开项目面板）
+        if let bid = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier,
+           BrowserTabService.shared.isSupportedTerminal(bundleID: bid),
+           tabIndex >= 1 && tabIndex <= 9 {
             let keyCodes: [Int: CGKeyCode] = [
                 1: 18, 2: 19, 3: 20, 4: 21, 5: 23,
                 6: 22, 7: 26, 8: 28, 9: 25
@@ -918,17 +859,7 @@ public enum AppWindowTabReader {
     // MARK: - 内部辅助方法
 
     public static func isSystemAction(_ title: String) -> Bool {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lower = trimmed.lowercased()
-        if systemActionExactNames.contains(lower) {
-            return true
-        }
-        for prefix in systemActionPrefixes {
-            if lower.hasPrefix(prefix) {
-                return true
-            }
-        }
-        return false
+        WindowMenuActionFilter.isSystemAction(title)
     }
 
     private static func findWindowMenu(in appElement: AXUIElement) -> AXUIElement? {

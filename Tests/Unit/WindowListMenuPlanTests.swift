@@ -83,3 +83,69 @@ final class WindowListMenuPlanTests: XCTestCase {
         XCTAssertTrue(WindowListMenuPlan.entries(snapshot: snap, bundleID: "com.example.app", fallbackTitle: "App").isEmpty)
     }
 }
+
+final class BrowserTabServiceIDETests: XCTestCase {
+    func testJetBrainsAndCommonIDEsAreRecognizedAsDocumentApps() {
+        let ideBundles = [
+            "com.jetbrains.pycharm",
+            "com.jetbrains.pycharm.ce",
+            "com.jetbrains.pycharm-CE",
+            "com.jetbrains.intellij",
+            "com.jetbrains.intellij.ce",
+            "com.jetbrains.intellij-CE",
+            "com.jetbrains.WebStorm",
+            "com.jetbrains.webstorm",
+            "com.jetbrains.CLion",
+            "com.jetbrains.clion",
+            "com.jetbrains.goland",
+            "com.google.android.studio",
+            "com.jetbrains.rider",
+            "com.jetbrains.rustrover",
+            "com.jetbrains.PhpStorm",
+            "com.jetbrains.phpstorm",
+            "com.jetbrains.rubymine",
+            "com.jetbrains.datagrip",
+            "com.jetbrains.dataspell",
+            "com.jetbrains.fleet",
+            "com.jetbrains.aqua",
+            "com.jetbrains.gateway",
+            "com.jetbrains.mps",
+            "com.jetbrains.any-future-ide",
+            "com.rstudio.positron",
+            "org.rstudio.RStudio"
+        ]
+
+        for bid in ideBundles {
+            XCTAssertTrue(
+                DocumentAppPolicy.isSupportedDocumentApp(bundleID: bid),
+                "\(bid) 应被识别为受支持的文档/IDE应用"
+            )
+        }
+    }
+
+    func testIDESystemActionsAreFiltered() {
+        let actions = [
+            "Next Project Window",
+            "Previous Project Window",
+            "下一个项目窗口",
+            "上一个项目窗口",
+            "下一個專案視窗",
+            "上一個專案視窗",
+            "Background Tasks",
+            "后台任务",
+            "後台任務",
+            "Show Main Menu",
+            "显示主菜单",
+            "顯示主功能表",
+            "次のプロジェクトウインドウ",
+            "前のプロジェクトウインドウ",
+            "バックグラウンドタスク"
+        ]
+        for action in actions {
+            XCTAssertTrue(
+                WindowMenuActionFilter.isSystemAction(action),
+                "IDE系统动作 '\(action)' 必须被过滤"
+            )
+        }
+    }
+}
