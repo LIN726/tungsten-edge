@@ -285,17 +285,49 @@ enum AppMenuBuilder {
             menu.addItem(header)
         }
 
+        let isNetease = (bid == MediaControlService.neteaseBundleID)
         let isPlaying = MediaControlService.shared.currentTrackInfo(for: bid)?.isPlaying ?? false
         let playPauseTitle = isPlaying ? String(localized: "Pause") : String(localized: "Play")
         menu.addItem(ClosureMenuItem(playPauseTitle) {
             MediaControlService.shared.togglePlayPause(bundleID: bid)
         })
-        menu.addItem(ClosureMenuItem(String(localized: "Next Track")) {
+
+        // 切歌：网易云对齐原生文案「下一个 / 上一个」，其他播放器保持「下一首 / 上一首」
+        let nextTitle = isNetease ? String(localized: "Next") : String(localized: "Next Track")
+        menu.addItem(ClosureMenuItem(nextTitle) {
             MediaControlService.shared.nextTrack(bundleID: bid)
         })
-        menu.addItem(ClosureMenuItem(String(localized: "Previous Track")) {
+
+        let prevTitle = isNetease ? String(localized: "Previous") : String(localized: "Previous Track")
+        menu.addItem(ClosureMenuItem(prevTitle) {
             MediaControlService.shared.previousTrack(bundleID: bid)
         })
+
+        // 喜欢/加心收藏歌曲
+        menu.addItem(ClosureMenuItem(String(localized: "Like Song")) {
+            MediaControlService.shared.toggleLike(bundleID: bid)
+        })
+
+        // 循环播放（二级子菜单）
+        let repeatItem = NSMenuItem(title: String(localized: "Repeat"), action: nil, keyEquivalent: "")
+        let repeatSubmenu = NSMenu(title: String(localized: "Repeat"))
+        repeatSubmenu.addItem(ClosureMenuItem(String(localized: "Repeat One")) {
+            MediaControlService.shared.setRepeatMode(bundleID: bid, mode: .one)
+        })
+        repeatSubmenu.addItem(ClosureMenuItem(String(localized: "Repeat All")) {
+            MediaControlService.shared.setRepeatMode(bundleID: bid, mode: .all)
+        })
+        repeatSubmenu.addItem(ClosureMenuItem(String(localized: "Repeat Off")) {
+            MediaControlService.shared.setRepeatMode(bundleID: bid, mode: .off)
+        })
+        repeatItem.submenu = repeatSubmenu
+        menu.addItem(repeatItem)
+
+        // 随机播放
+        menu.addItem(ClosureMenuItem(String(localized: "Shuffle")) {
+            MediaControlService.shared.toggleShuffle(bundleID: bid)
+        })
+
         menu.addItem(.separator())
     }
 

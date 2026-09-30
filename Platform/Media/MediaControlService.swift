@@ -1,6 +1,14 @@
 import AppKit
+import ApplicationServices
 import Foundation
 import os.log
+
+/// 播放循环模式
+public enum MediaRepeatMode: Sendable {
+    case one
+    case all
+    case off
+}
 
 /// 当前正在播放的媒体信息快照
 public struct MediaTrackInfo: Sendable, Equatable {
@@ -95,6 +103,98 @@ public final class MediaControlService: @unchecked Sendable {
                 self?.runAppleScript("tell application \"Spotify\" to previous track")
             default:
                 Self.postMediaKey(Self.NX_KEYTYPE_PREVIOUS)
+            }
+        }
+    }
+
+    /// 喜欢/收藏当前歌曲
+    public func toggleLike(bundleID: String) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            switch bundleID {
+            case Self.musicBundleID:
+                self?.runAppleScript("""
+                tell application "Music"
+                    if player state is playing then
+                        set favorited of current track to not (favorited of current track)
+                    end if
+                end tell
+                """)
+            case Self.neteaseBundleID:
+                if let pid = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier {
+                    let candidates = [
+                        ["控制", "喜欢歌曲"],
+                        ["控制", "取消喜欢"],
+                        ["Control", "Like"],
+                        ["Control", "Dislike"]
+                    ]
+                    if !AXMenuTrigger.pressMenuItem(pid: pid, candidatePaths: candidates) {
+                        // 回退：网易云原生快捷键 Cmd + L (加心/喜欢歌曲)
+                        Self.postCmdKey(pid: pid, keyCode: 0x25)
+                    }
+                }
+            case Self.qqMusicBundleID:
+                if let pid = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier {
+                    _ = AXMenuTrigger.pressMenuItem(pid: pid, candidatePaths: [["控制", "喜欢"]])
+                }
+            default:
+                break
+            }
+        }
+    }
+
+    /// 设置循环播放模式
+    public func setRepeatMode(bundleID: String, mode: MediaRepeatMode) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            switch bundleID {
+            case Self.musicBundleID:
+                let modeStr: String
+                switch mode {
+                case .one: modeStr = "one"
+                case .all: modeStr = "all"
+                case .off: modeStr = "off"
+                }
+                self?.runAppleScript("tell application \"Music\" to set song repeat to \(modeStr)")
+            case Self.neteaseBundleID:
+                if let pid = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier {
+                    let targetName: String
+                    let enName: String
+                    switch mode {
+                    case .one:
+                        targetName = "单曲循环"
+                        enName = "Repeat One"
+                    case .all:
+                        targetName = "列表循环"
+                        enName = "Repeat All"
+                    case .off:
+                        targetName = "顺序播放"
+                        enName = "Repeat Off"
+                    }
+                    _ = AXMenuTrigger.pressMenuItem(pid: pid, candidatePaths: [
+                        ["控制", "循环播放", targetName],
+                        ["Control", "Repeat", enName]
+                    ])
+                }
+            default:
+                break
+            }
+        }
+    }
+
+    /// 切换随机播放
+    public func toggleShuffle(bundleID: String) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            switch bundleID {
+            case Self.musicBundleID:
+                self?.runAppleScript("tell application \"Music\" to set shuffle enabled to not (shuffle enabled)")
+            case Self.neteaseBundleID:
+                if let pid = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier {
+                    _ = AXMenuTrigger.pressMenuItem(pid: pid, candidatePaths: [
+                        ["控制", "随机播放"],
+                        ["Control", "Shuffle"]
+                    ])
+                }
+            default:
+                break
             }
         }
     }
@@ -221,5 +321,80 @@ public final class MediaControlService: @unchecked Sendable {
         } else if rawState.caseInsensitiveCompare("Stopped") == .orderedSame {
             trackInfoCache.removeValue(forKey: bundleID)
         }
+    }
+
+    /// 模拟特定快捷键（Cmd + key）
+    private static func postCmdKey(pid: pid_t, keyCode: CGKeyCode) {
+        let src = CGEventSource(stateID: .combinedSessionState)
+        let flags: CGEventFlags = [.maskCommand]
+        for down in [true, false] {
+            if let e = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: down) {
+                e.flags = flags
+                e.postToPid(pid)
+            }
+        }
+    }
+}
+
+/// 跨进程菜单栏 Accessibility 动作调度器
+enum AXMenuTrigger {
+    static func pressMenuItem(pid: pid_t, candidatePaths: [[String]]) -> Bool {
+        for path in candidatePaths {
+            if pressMenuItem(pid: pid, path: path) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func pressMenuItem(pid: pid_t, path: [String]) -> Bool {
+        guard !path.isEmpty else { return false }
+        let axApp = AXUIElementCreateApplication(pid)
+
+        var menuBarRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axApp, kAXMenuBarAttribute as CFString, &menuBarRef) == .success,
+              let menuBar = menuBarRef as! AXUIElement? else {
+            return false
+        }
+
+        var currentElement = menuBar
+        for (index, component) in path.enumerated() {
+            guard let matched = findChild(in: currentElement, matching: component) else {
+                return false
+            }
+
+            if index == path.count - 1 {
+                let err = AXUIElementPerformAction(matched, kAXPressAction as CFString)
+                return err == .success
+            } else {
+                currentElement = matched
+            }
+        }
+        return false
+    }
+
+    private static func findChild(in parent: AXUIElement, matching title: String) -> AXUIElement? {
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(parent, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let children = childrenRef as? [AXUIElement] else {
+            return nil
+        }
+        for child in children {
+            var childTitleRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(child, kAXTitleAttribute as CFString, &childTitleRef) == .success,
+               let childTitle = childTitleRef as? String {
+                if childTitle.caseInsensitiveCompare(title) == .orderedSame || childTitle.contains(title) {
+                    return child
+                }
+            }
+            var roleRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &roleRef) == .success,
+               let role = roleRef as? String, role == (kAXMenuRole as String) {
+                if let subChild = findChild(in: child, matching: title) {
+                    return subChild
+                }
+            }
+        }
+        return nil
     }
 }
